@@ -124,7 +124,7 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     oauth: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET)
+      kakao: !!(process.env.KAKAO_CLIENT_ID )
     }
   });
 });
@@ -138,7 +138,7 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     oauth_status: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET),
+      kakao: !!(process.env.KAKAO_CLIENT_ID),
       jwt: !!process.env.JWT_SECRET,
       database: true
     }
