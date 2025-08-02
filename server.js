@@ -23,7 +23,7 @@ app.use(cors({
     // 허용할 도메인 목록
     const allowedOrigins = [
       'http://localhost:8080', // 개발 환경
-      'https://wonseokhahn.github.io/TradeSiteFront', // GitHub Pages
+      'https://wonseokhahn.github.io/TradeSiteFront/', // GitHub Pages
       'https://your-custom-domain.com', // 커스텀 도메인 (있는 경우)
       process.env.FRONTEND_URL // 환경 변수로 설정된 URL
     ].filter(Boolean); // undefined 제거
