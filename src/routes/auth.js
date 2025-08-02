@@ -2,7 +2,7 @@ console.log('🔐 auth.js 라우터 파일이 로딩되었습니다');
 
 const express = require('express');
 const router = express.Router();
-
+ 
 console.log('✅ Auth 라우터가 생성되었습니다');
 
 // 테스트 라우트

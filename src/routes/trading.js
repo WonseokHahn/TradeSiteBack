@@ -8,7 +8,7 @@ const {
   getTradingStatus 
 } = require('../controllers/tradingController');
 const { authenticateJWT } = require('../middleware/auth');
-
+ 
 const router = express.Router();
 
 // 모든 트레이딩 관련 라우트는 로그인 필요
