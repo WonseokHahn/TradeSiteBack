@@ -159,9 +159,10 @@ app.get('/api/auth/google/callback',
       // JWT 토큰 생성
       const token = generateToken(req.user);
       console.log('🎫 JWT 토큰 생성 완료');
-      
+      console.log(generateToken(req.user));
+      return
       // 프론트엔드로 토큰과 함께 리다이렉트
-      const redirectURL = `${process.env.FRONTEND_URL}/api/auth/google/callback?token=${token}&provider=google&name=${encodeURIComponent(req.user.name)}`;
+      const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=google&name=${encodeURIComponent(req.user.name)}`;
       console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
       
       res.redirect(redirectURL);
@@ -188,7 +189,7 @@ app.get('/api/auth/kakao/callback',
       console.log('🎫 JWT 토큰 생성 완료');
       
       // 프론트엔드로 토큰과 함께 리다이렉트
-      const redirectURL = `${process.env.FRONTEND_URL}/api/auth/kakao/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
+      const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
       console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
       
       res.redirect(redirectURL);
