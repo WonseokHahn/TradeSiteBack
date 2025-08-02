@@ -17,31 +17,53 @@ console.log('⚙️ 미들웨어를 설정합니다...');
 // 미들웨어 설정
 app.use(helmet());
 // server.js의 CORS 설정 부분을 수정
-
 app.use(cors({
   origin: function (origin, callback) {
     // 허용할 도메인 목록
     const allowedOrigins = [
       'http://localhost:8080', // 개발 환경
+      'http://localhost:3000', // 개발 환경 (다른 포트)
       'https://wonseokhahn.github.io/TradeSiteFront/', // GitHub Pages
-      'https://your-custom-domain.com', // 커스텀 도메인 (있는 경우)
+      'https://tradesiteback.onrender.com', // 백엔드 자체 (필요시)
       process.env.FRONTEND_URL // 환경 변수로 설정된 URL
     ].filter(Boolean); // undefined 제거
 
-    // origin이 없는 경우 (모바일 앱, Postman 등) 허용
-    if (!origin) return callback(null, true);
+    console.log('🔍 CORS 요청 Origin:', origin);
+    console.log('✅ 허용된 Origins:', allowedOrigins);
+
+    // origin이 없는 경우 (모바일 앱, Postman, 서버간 통신 등) 허용
+    if (!origin) {
+      console.log('✅ Origin이 없는 요청 허용');
+      return callback(null, true);
+    }
     
     if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log('✅ CORS 허용:', origin);
       callback(null, true);
     } else {
       console.log('❌ CORS 차단:', origin);
-      callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+      console.log('💡 허용된 origins에 추가가 필요합니다.');
+      // 개발 중에는 허용하고, 프로덕션에서만 차단
+      if (process.env.NODE_ENV === 'development') {
+        callback(null, true);
+      } else {
+        callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+      }
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Accept',
+    'Origin'
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400 // 24시간 프리플라이트 캐시
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
