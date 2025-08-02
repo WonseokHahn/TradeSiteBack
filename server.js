@@ -16,9 +16,31 @@ console.log('⚙️ 미들웨어를 설정합니다...');
 
 // 미들웨어 설정
 app.use(helmet());
+// server.js의 CORS 설정 부분을 수정
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
-  credentials: true
+  origin: function (origin, callback) {
+    // 허용할 도메인 목록
+    const allowedOrigins = [
+      'http://localhost:8080', // 개발 환경
+      'https://wonseokhahn.github.io/TradeSiteFront', // GitHub Pages
+      'https://your-custom-domain.com', // 커스텀 도메인 (있는 경우)
+      process.env.FRONTEND_URL // 환경 변수로 설정된 URL
+    ].filter(Boolean); // undefined 제거
+
+    // origin이 없는 경우 (모바일 앱, Postman 등) 허용
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS 차단:', origin);
+      callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
