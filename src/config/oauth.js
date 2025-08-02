@@ -13,176 +13,124 @@ console.log('- GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? '✅ 설정됨
 console.log('- GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? '✅ 설정됨' : '❌ 미설정');
 console.log('- KAKAO_CLIENT_ID:', process.env.KAKAO_CLIENT_ID ? '✅ 설정됨' : '❌ 미설정');
 
-// // Google OAuth Strategy
-// if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-//   console.log('🔧 Google OAuth 전략을 설정합니다...');
+// Google OAuth Strategy
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  console.log('🔧 Google OAuth 전략을 설정합니다...');
   
-//   passport.use(new GoogleStrategy({
-//     clientID: process.env.GOOGLE_CLIENT_ID,
-//     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-//     callbackURL: "/api/auth/google/callback"
-//   }, async (accessToken, refreshToken, profile, done) => {
-//     try {
-//       console.log('🔍 Google 사용자 정보 수신:', {
-//         id: profile.id,
-//         name: profile.displayName,
-//         email: profile.emails?.[0]?.value
-//       });
-      
-//       // 기존 사용자 확인
-//       const existingUser = await query(
-//         'SELECT * FROM users WHERE google_id = $1',
-//         [profile.id]
-//       );
-      
-//       if (existingUser.rows.length > 0) {
-//         console.log('✅ 기존 Google 사용자 로그인:', existingUser.rows[0].email);
-        
-//         // 마지막 로그인 시간 업데이트
-//         await query(
-//           'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
-//           [existingUser.rows[0].id]
-//         );
-        
-//         return done(null, existingUser.rows[0]);
-//       }
-      
-//       // 새 사용자 생성
-//       console.log('🆕 새 Google 사용자 생성 중...');
-//       const newUser = await query(
-//         `INSERT INTO users (google_id, email, name, avatar, last_login_at)
-//          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-//          RETURNING *`,
-//         [
-//           profile.id,
-//           profile.emails?.[0]?.value || null,
-//           profile.displayName,
-//           profile.photos?.[0]?.value || null
-//         ]
-//       );
-      
-//       console.log('✅ 새 Google 사용자 생성 완료:', newUser.rows[0].email);
-//       done(null, newUser.rows[0]);
-      
-//     } catch (error) {
-//       console.error('❌ Google OAuth 데이터베이스 처리 실패:', error);
-//       done(error, null);
-//     }
-//   }));
-  
-//   console.log('✅ Google OAuth 전략 설정 완료');
-// }
-
-// // Kakao OAuth Strategy
-// if (process.env.KAKAO_CLIENT_ID) {
-//   console.log('🔧 Kakao OAuth 전략을 설정합니다...');
-  
-//   passport.use(new KakaoStrategy({
-//     clientID: process.env.KAKAO_CLIENT_ID,
-//     callbackURL: "/api/auth/kakao/callback"
-//   }, async (accessToken, refreshToken, profile, done) => {
-//     try {
-//       console.log('🔍 Kakao 사용자 정보 수신:', {
-//         id: profile.id,
-//         name: profile.displayName,
-//         email: profile._json.kakao_account?.email
-//       });
-      
-//       // 기존 사용자 확인
-//       const existingUser = await query(
-//         'SELECT * FROM users WHERE kakao_id = $1',
-//         [profile.id.toString()]
-//       );
-      
-//       if (existingUser.rows.length > 0) {
-//         console.log('✅ 기존 Kakao 사용자 로그인:', existingUser.rows[0].email);
-        
-//         // 마지막 로그인 시간 업데이트
-//         await query(
-//           'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
-//           [existingUser.rows[0].id]
-//         );
-        
-//         return done(null, existingUser.rows[0]);
-//       }
-      
-//       // 새 사용자 생성
-//       console.log('🆕 새 Kakao 사용자 생성 중...');
-//       const newUser = await query(
-//         `INSERT INTO users (kakao_id, email, name, avatar, last_login_at)
-//          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-//          RETURNING *`,
-//         [
-//           profile.id.toString(),
-//           profile._json.kakao_account?.email || null,
-//           profile.displayName,
-//           profile._json.kakao_account?.profile?.profile_image_url || null
-//         ]
-//       );
-      
-//       console.log('✅ 새 Kakao 사용자 생성 완료:', newUser.rows[0].email);
-//       done(null, newUser.rows[0]);
-      
-//     } catch (error) {
-//       console.error('❌ Kakao OAuth 데이터베이스 처리 실패:', error);
-//       done(error, null);
-//     }
-//   }));
-  
-//   console.log('✅ Kakao OAuth 전략 설정 완료');
-// }
-// server.js의 OAuth 콜백 부분을 수정
-
-app.get('/api/auth/google/callback',
-  passport.authenticate('google', { session: false }),
-  (req, res) => {
+  passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "/api/auth/google/callback"
+  }, async (accessToken, refreshToken, profile, done) => {
     try {
-      console.log('✅ Google OAuth 성공:', req.user);
+      console.log('🔍 Google 사용자 정보 수신:', {
+        id: profile.id,
+        name: profile.displayName,
+        email: profile.emails?.[0]?.value
+      });
       
-      // JWT 토큰 생성
-      const token = generateToken(req.user);
-      console.log('🎫 JWT 토큰 생성 완료');
+      // 기존 사용자 확인
+      const existingUser = await query(
+        'SELECT * FROM users WHERE google_id = $1',
+        [profile.id]
+      );
       
-      // FRONTEND_URL이 이미 /TradeSiteFront를 포함하고 있음
-      const frontendUrl = process.env.FRONTEND_URL || 'https://wonseokhahn.github.io/TradeSiteFront';
-      const redirectURL = `${frontendUrl}/auth/callback?token=${token}&provider=google&name=${encodeURIComponent(req.user.name)}`;
+      if (existingUser.rows.length > 0) {
+        console.log('✅ 기존 Google 사용자 로그인:', existingUser.rows[0].email);
+        
+        // 마지막 로그인 시간 업데이트
+        await query(
+          'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [existingUser.rows[0].id]
+        );
+        
+        return done(null, existingUser.rows[0]);
+      }
       
-      console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
+      // 새 사용자 생성
+      console.log('🆕 새 Google 사용자 생성 중...');
+      const newUser = await query(
+        `INSERT INTO users (google_id, email, name, avatar, last_login_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         RETURNING *`,
+        [
+          profile.id,
+          profile.emails?.[0]?.value || null,
+          profile.displayName,
+          profile.photos?.[0]?.value || null
+        ]
+      );
       
-      res.redirect(redirectURL);
+      console.log('✅ 새 Google 사용자 생성 완료:', newUser.rows[0].email);
+      done(null, newUser.rows[0]);
+      
     } catch (error) {
-      console.error('❌ Google 콜백 처리 실패:', error);
-      const frontendUrl = process.env.FRONTEND_URL || 'https://wonseokhahn.github.io/TradeSiteFront';
-      res.redirect(`${frontendUrl}/login?error=auth_failed`);
+      console.error('❌ Google OAuth 데이터베이스 처리 실패:', error);
+      done(error, null);
     }
-  }
-);
+  }));
+  
+  console.log('✅ Google OAuth 전략 설정 완료');
+}
 
-app.get('/api/auth/kakao/callback',
-  passport.authenticate('kakao', { session: false }),
-  (req, res) => {
+// Kakao OAuth Strategy
+if (process.env.KAKAO_CLIENT_ID) {
+  console.log('🔧 Kakao OAuth 전략을 설정합니다...');
+  
+  passport.use(new KakaoStrategy({
+    clientID: process.env.KAKAO_CLIENT_ID,
+    callbackURL: "/api/auth/kakao/callback"
+  }, async (accessToken, refreshToken, profile, done) => {
     try {
-      console.log('✅ Kakao OAuth 성공:', req.user);
+      console.log('🔍 Kakao 사용자 정보 수신:', {
+        id: profile.id,
+        name: profile.displayName,
+        email: profile._json.kakao_account?.email
+      });
       
-      // JWT 토큰 생성
-      const token = generateToken(req.user);
-      console.log('🎫 JWT 토큰 생성 완료');
+      // 기존 사용자 확인
+      const existingUser = await query(
+        'SELECT * FROM users WHERE kakao_id = $1',
+        [profile.id.toString()]
+      );
       
-      // FRONTEND_URL이 이미 /TradeSiteFront를 포함하고 있음
-      const frontendUrl = process.env.FRONTEND_URL || 'https://wonseokhahn.github.io/TradeSiteFront';
-      const redirectURL = `${frontendUrl}/auth/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
+      if (existingUser.rows.length > 0) {
+        console.log('✅ 기존 Kakao 사용자 로그인:', existingUser.rows[0].email);
+        
+        // 마지막 로그인 시간 업데이트
+        await query(
+          'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [existingUser.rows[0].id]
+        );
+        
+        return done(null, existingUser.rows[0]);
+      }
       
-      console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
+      // 새 사용자 생성
+      console.log('🆕 새 Kakao 사용자 생성 중...');
+      const newUser = await query(
+        `INSERT INTO users (kakao_id, email, name, avatar, last_login_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         RETURNING *`,
+        [
+          profile.id.toString(),
+          profile._json.kakao_account?.email || null,
+          profile.displayName,
+          profile._json.kakao_account?.profile?.profile_image_url || null
+        ]
+      );
       
-      res.redirect(redirectURL);
+      console.log('✅ 새 Kakao 사용자 생성 완료:', newUser.rows[0].email);
+      done(null, newUser.rows[0]);
+      
     } catch (error) {
-      console.error('❌ Kakao 콜백 처리 실패:', error);
-      const frontendUrl = process.env.FRONTEND_URL || 'https://wonseokhahn.github.io/TradeSiteFront';
-      res.redirect(`${frontendUrl}/login?error=auth_failed`);
+      console.error('❌ Kakao OAuth 데이터베이스 처리 실패:', error);
+      done(error, null);
     }
-  }
-);
-
+  }));
+  
+  console.log('✅ Kakao OAuth 전략 설정 완료');
+}
 
 // JWT Strategy
 if (process.env.JWT_SECRET) {
