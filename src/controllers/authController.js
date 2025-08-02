@@ -13,7 +13,7 @@ const handleOAuthCallback = (req, res) => {
     const token = generateToken(req.user);
     
     // 프론트엔드로 토큰과 함께 리다이렉트
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+    res.redirect(`${process.env.FRONTEND_URL}/api/auth/callback?token=${token}`);
   } catch (error) {
     console.error('OAuth 콜백 오류:', error);
     res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
