@@ -124,7 +124,7 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     oauth: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!(process.env.KAKAO_CLIENT_ID )
+      kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET)
     }
   });
 });
@@ -138,7 +138,7 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     oauth_status: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!(process.env.KAKAO_CLIENT_ID),
+      kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET),
       jwt: !!process.env.JWT_SECRET,
       database: true
     }
@@ -177,27 +177,56 @@ app.get('/api/auth/kakao',
   passport.authenticate('kakao')
 );
 
+/// server.js의 Kakao 콜백 부분 수정
+
 app.get('/api/auth/kakao/callback',
+  (req, res, next) => {
+    console.log('🔍 Kakao 콜백 요청 수신');
+    console.log('📍 URL:', req.url);
+    console.log('🔗 쿼리:', req.query);
+    console.log('📋 헤더:', req.headers);
+    next();
+  },
   passport.authenticate('kakao', { session: false }),
   (req, res) => {
     try {
       console.log('✅ Kakao OAuth 성공:', req.user);
+      console.log('🌍 FRONTEND_URL:', process.env.FRONTEND_URL);
       
       // JWT 토큰 생성
       const token = generateToken(req.user);
       console.log('🎫 JWT 토큰 생성 완료');
+      console.log('🔑 생성된 토큰:', token.substring(0, 50) + '...');
       
       // 프론트엔드로 토큰과 함께 리다이렉트
       const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
-      console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
+      console.log('🔄 리다이렉트 URL:', redirectURL);
+      console.log('📏 URL 길이:', redirectURL.length);
       
       res.redirect(redirectURL);
     } catch (error) {
       console.error('❌ Kakao 콜백 처리 실패:', error);
-      res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
+      console.error('📍 에러 스택:', error.stack);
+      
+      const errorUrl = `${process.env.FRONTEND_URL}/login?error=kakao_auth_failed`;
+      console.log('🔄 에러 리다이렉트 URL:', errorUrl);
+      res.redirect(errorUrl);
     }
   }
 );
+
+// Kakao OAuth 에러 핸들링 추가
+app.use('/api/auth/kakao', (err, req, res, next) => {
+  console.error('❌ Kakao OAuth 에러:', err);
+  console.error('📍 에러 상세:', {
+    message: err.message,
+    stack: err.stack,
+    name: err.name
+  });
+  
+  const errorUrl = `${process.env.FRONTEND_URL}/login?error=kakao_oauth_error`;
+  res.redirect(errorUrl);
+});
 
 // 프로필 조회 (JWT 인증 필요)
 app.get('/api/auth/profile', 
