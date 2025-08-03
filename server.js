@@ -229,7 +229,7 @@ app.get('/api/auth/test', (req, res) => {
     timestamp: new Date().toISOString(),
     oauth_ready: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!process.env.KAKAO_CLIENT_ID
+      kakao: !!process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET
     }
   });
 });

@@ -82,7 +82,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 // Kakao OAuth Strategy
-if (process.env.KAKAO_CLIENT_ID) {
+if (process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET) {
   console.log('🔧 Kakao OAuth 전략을 설정합니다...');
   
   // 콜백 URL을 환경에 따라 설정 (중요!)
@@ -94,6 +94,7 @@ if (process.env.KAKAO_CLIENT_ID) {
   
   passport.use(new KakaoStrategy({
     clientID: process.env.KAKAO_CLIENT_ID,
+    clientSecret: process.env.KAKAO_CLIENT_SECRET,
     callbackURL: kakaoCallbackURL  // 절대 URL 사용
   }, async (accessToken, refreshToken, profile, done) => {
     try {
