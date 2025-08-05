@@ -528,6 +528,153 @@ app.get('/api/trading/strategies', async (req, res) => {
   }
 });
 
+// 기존 GET 라우트들 아래에 POST 라우트 추가
+app.post('/api/trading/strategies', async (req, res) => {
+  try {
+    console.log('✍️ 새 전략 생성 요청:', req.body);
+    
+    const { 
+      name, 
+      type, 
+      riskLevel, 
+      description, 
+      indicators,
+      buyConditions,
+      sellConditions,
+      stopLoss,
+      takeProfit 
+    } = req.body;
+
+    // 입력 값 검증
+    if (!name || !type || !riskLevel) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 필드가 누락되었습니다. (name, type, riskLevel)'
+      });
+    }
+
+    // 새 전략 생성 (실제로는 데이터베이스에 저장)
+    const newStrategy = {
+      id: Date.now(), // 임시 ID (실제로는 DB에서 자동 생성)
+      name,
+      type,
+      riskLevel,
+      description: description || '',
+      indicators: indicators || [],
+      buyConditions: buyConditions || [],
+      sellConditions: sellConditions || [],
+      stopLoss: stopLoss || null,
+      takeProfit: takeProfit || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'active',
+      performance: {
+        totalTrades: 0,
+        winRate: 0,
+        totalReturn: 0
+      }
+    };
+
+    console.log('✅ 새 전략 생성 완료:', newStrategy.name);
+
+    res.status(201).json({
+      success: true,
+      message: '전략이 성공적으로 생성되었습니다.',
+      data: newStrategy
+    });
+
+  } catch (error) {
+    console.error('❌ 전략 생성 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '전략 생성 중 오류가 발생했습니다.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// 전략 수정 (PUT)
+app.put('/api/trading/strategies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`📝 전략 수정 요청: ID ${id}`, req.body);
+
+    // 실제로는 데이터베이스에서 해당 ID의 전략을 찾아서 수정
+    const updatedStrategy = {
+      id: parseInt(id),
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      message: '전략이 성공적으로 수정되었습니다.',
+      data: updatedStrategy
+    });
+
+  } catch (error) {
+    console.error('❌ 전략 수정 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '전략 수정 중 오류가 발생했습니다.'
+    });
+  }
+});
+
+// 전략 삭제 (DELETE)
+app.delete('/api/trading/strategies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🗑️ 전략 삭제 요청: ID ${id}`);
+
+    // 실제로는 데이터베이스에서 해당 ID의 전략을 삭제
+
+    res.json({
+      success: true,
+      message: '전략이 성공적으로 삭제되었습니다.',
+      deletedId: id
+    });
+
+  } catch (error) {
+    console.error('❌ 전략 삭제 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '전략 삭제 중 오류가 발생했습니다.'
+    });
+  }
+});
+
+// 특정 전략 조회 (GET)
+app.get('/api/trading/strategies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🔍 특정 전략 조회: ID ${id}`);
+
+    // 실제로는 데이터베이스에서 해당 ID의 전략을 조회
+    const strategy = {
+      id: parseInt(id),
+      name: "모멘텀 전략",
+      type: "단기",
+      riskLevel: "중간",
+      description: "상승 추세를 포착하는 전략",
+      createdAt: new Date().toISOString(),
+      status: "active"
+    };
+
+    res.json({
+      success: true,
+      data: strategy
+    });
+
+  } catch (error) {
+    console.error('❌ 전략 조회 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '전략 조회 중 오류가 발생했습니다.'
+    });
+  }
+});
+
 // 에러 핸들링
 app.use((err, req, res, next) => {
   console.error('💥 서버 에러:', err);
