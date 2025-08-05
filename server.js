@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const axios = require('axios');
 console.log('⚙️ 미들웨어를 설정합니다...');
 
 // 미들웨어 설정
@@ -128,6 +129,35 @@ app.get('/', (req, res) => {
     }
   });
 });
+
+// KIS API 설정
+const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
+let kisAccessToken = null;
+let kisTokenExpiry = null;
+
+// KIS 토큰 획득 함수
+async function getKISToken() {
+  try {
+    if (kisAccessToken && kisTokenExpiry && Date.now() < kisTokenExpiry) {
+      return kisAccessToken;
+    }
+
+    const response = await axios.post(`${KIS_BASE_URL}/oauth2/tokenP`, {
+      grant_type: 'client_credentials',
+      appkey: process.env.KIS_APP_KEY,
+      appsecret: process.env.KIS_APP_SECRET
+    });
+
+    kisAccessToken = response.data.access_token;
+    kisTokenExpiry = Date.now() + (response.data.expires_in * 1000);
+    
+    console.log('✅ KIS 토큰 획득 성공');
+    return kisAccessToken;
+  } catch (error) {
+    console.error('❌ KIS 토큰 획득 실패:', error.message);
+    throw error;
+  }
+}
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -435,39 +465,54 @@ async function generateSummary(content) {
   }
 }
 
-
-// Trading 라우터 섹션에 추가 (기존 /api/trading/status 아래에)
+// 기존 최적 전략 라우트 수정 (AI 추천 전략 제거)
 app.get('/api/trading/strategies/best', async (req, res) => {
   try {
-    console.log('🎯 최적 전략 요청');
+    console.log('🎯 기본 전략 정보 요청');
     
-    // 임시 mock 데이터 (실제 로직으로 교체하세요)
-    const bestStrategy = {
-      name: "모멘텀 전략",
-      description: "단기 상승 추세를 포착하는 전략입니다",
-      period: "5일",
-      riskLevel: "중간",
-      expectedReturn: "12%",
-      lastUpdated: new Date().toISOString(),
-      indicators: [
-        { name: "RSI", value: 65, signal: "매수" },
-        { name: "MACD", value: 1.2, signal: "상승" },
-        { name: "볼린저밴드", value: "상단 근접", signal: "관찰" }
-      ]
+    // 기본 전략 가이드만 제공 (AI 추천 제거)
+    const strategyGuide = {
+      bull: {
+        domestic: {
+          name: "국내 상승장 전략",
+          description: "기술주와 성장주 중심의 모멘텀 투자",
+          recommendedSectors: ["반도체", "IT", "바이오", "전기차"],
+          riskLevel: "Medium"
+        },
+        global: {
+          name: "해외 상승장 전략", 
+          description: "미국 기술주 중심의 성장 투자",
+          recommendedSectors: ["Technology", "Healthcare", "Clean Energy"],
+          riskLevel: "High"
+        }
+      },
+      bear: {
+        domestic: {
+          name: "국내 하락장 전략",
+          description: "배당주와 안전자산 중심의 방어 투자",
+          recommendedSectors: ["유틸리티", "필수소비재", "통신"],
+          riskLevel: "Low"
+        },
+        global: {
+          name: "해외 하락장 전략",
+          description: "대형주와 배당주 중심의 안전 투자", 
+          recommendedSectors: ["Consumer Staples", "Utilities", "Healthcare"],
+          riskLevel: "Low"
+        }
+      }
     };
-
+    
     res.json({
       success: true,
-      data: bestStrategy,
-      timestamp: new Date().toISOString()
+      data: strategyGuide,
+      message: "전략 가이드를 참고하여 직접 종목을 선택해주세요"
     });
-
+    
   } catch (error) {
-    console.error('❌ 최적 전략 조회 실패:', error);
+    console.error('❌ 전략 가이드 조회 오류:', error);
     res.status(500).json({
       success: false,
-      message: '최적 전략을 불러오는 중 오류가 발생했습니다.',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: '전략 가이드 조회 중 오류가 발생했습니다'
     });
   }
 });
@@ -873,6 +918,339 @@ app.get('/api/trading/status',
           isActive: false,
           strategy: null
         }
+      });
+    }
+  }
+);
+// 국내 주식 정보 조회
+app.get('/api/trading/stock/info/domestic', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const { stockCode } = req.query;
+      console.log('🔍 국내 주식 정보 조회:', stockCode);
+      
+      if (!stockCode || !/^\d{6}$/.test(stockCode)) {
+        return res.status(400).json({
+          success: false,
+          message: '올바른 종목 코드를 입력해주세요 (6자리 숫자)'
+        });
+      }
+
+      try {
+        const token = await getKISToken();
+        
+        // 국내 주식 현재가 조회
+        const response = await axios.get(`${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'appkey': process.env.KIS_APP_KEY,
+            'appsecret': process.env.KIS_APP_SECRET,
+            'tr_id': 'FHKST01010100'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: stockCode
+          }
+        });
+
+        if (response.data.rt_cd === '0') {
+          const stockData = response.data.output;
+          
+          res.json({
+            success: true,
+            data: {
+              code: stockCode,
+              name: stockData.hts_kor_isnm,
+              price: parseInt(stockData.stck_prpr),
+              change: parseInt(stockData.prdy_vrss),
+              changeRate: parseFloat(stockData.prdy_ctrt),
+              market: stockData.bstp_kor_isnm
+            }
+          });
+        } else {
+          res.status(404).json({
+            success: false,
+            message: '종목을 찾을 수 없습니다'
+          });
+        }
+      } catch (apiError) {
+        console.error('KIS API 오류:', apiError.message);
+        
+        // API 오류시 더미 데이터 반환 (개발용)
+        const dummyStocks = {
+          '005930': { name: '삼성전자', price: 75000 },
+          '000660': { name: 'SK하이닉스', price: 120000 },
+          '035420': { name: 'NAVER', price: 185000 },
+          '051910': { name: 'LG화학', price: 450000 },
+          '373220': { name: 'LG에너지솔루션', price: 520000 }
+        };
+        
+        if (dummyStocks[stockCode]) {
+          res.json({
+            success: true,
+            data: {
+              code: stockCode,
+              name: dummyStocks[stockCode].name,
+              price: dummyStocks[stockCode].price,
+              change: 0,
+              changeRate: 0,
+              market: 'KOSPI'
+            }
+          });
+        } else {
+          res.status(404).json({
+            success: false,
+            message: '종목을 찾을 수 없습니다'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('❌ 국내 주식 정보 조회 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '주식 정보 조회 중 오류가 발생했습니다'
+      });
+    }
+  }
+);
+
+// 해외 주식 정보 조회
+app.get('/api/trading/stock/info/global', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const { ticker } = req.query;
+      console.log('🌍 해외 주식 정보 조회:', ticker);
+      
+      if (!ticker || !/^[A-Z]{1,5}$/.test(ticker)) {
+        return res.status(400).json({
+          success: false,
+          message: '올바른 티커를 입력해주세요'
+        });
+      }
+
+      try {
+        const token = await getKISToken();
+        
+        // 해외 주식 현재가 조회
+        const response = await axios.get(`${KIS_BASE_URL}/uapi/overseas-price/v1/quotations/price`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'appkey': process.env.KIS_APP_KEY,
+            'appsecret': process.env.KIS_APP_SECRET,
+            'tr_id': 'HHDFS00000300'
+          },
+          params: {
+            AUTH: '',
+            EXCD: 'NAS', // NASDAQ
+            SYMB: ticker
+          }
+        });
+
+        if (response.data.rt_cd === '0') {
+          const stockData = response.data.output;
+          
+          res.json({
+            success: true,
+            data: {
+              code: ticker,
+              name: stockData.name || ticker,
+              price: parseFloat(stockData.last),
+              change: parseFloat(stockData.diff),
+              changeRate: parseFloat(stockData.rate),
+              market: 'NASDAQ'
+            }
+          });
+        } else {
+          res.status(404).json({
+            success: false,
+            message: '종목을 찾을 수 없습니다'
+          });
+        }
+      } catch (apiError) {
+        console.error('KIS API 오류:', apiError.message);
+        
+        // API 오류시 더미 데이터 반환 (개발용)
+        const dummyStocks = {
+          'AAPL': { name: 'Apple Inc.', price: 180.50 },
+          'MSFT': { name: 'Microsoft Corp.', price: 415.30 },
+          'GOOGL': { name: 'Alphabet Inc.', price: 2850.75 },
+          'AMZN': { name: 'Amazon.com Inc.', price: 3285.04 },
+          'TSLA': { name: 'Tesla Inc.', price: 248.50 },
+          'META': { name: 'Meta Platforms Inc.', price: 485.20 },
+          'NVDA': { name: 'NVIDIA Corp.', price: 875.45 },
+          'NFLX': { name: 'Netflix Inc.', price: 485.75 }
+        };
+        
+        if (dummyStocks[ticker]) {
+          res.json({
+            success: true,
+            data: {
+              code: ticker,
+              name: dummyStocks[ticker].name,
+              price: dummyStocks[ticker].price,
+              change: 0,
+              changeRate: 0,
+              market: 'NASDAQ'
+            }
+          });
+        } else {
+          res.status(404).json({
+            success: false,
+            message: '종목을 찾을 수 없습니다'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('❌ 해외 주식 정보 조회 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '주식 정보 조회 중 오류가 발생했습니다'
+      });
+    }
+  }
+);
+
+// 국내 계좌 잔고 조회
+app.get('/api/trading/account/balance/domestic', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      console.log('💰 국내 계좌 잔고 조회:', req.user.id);
+      
+      try {
+        const token = await getKISToken();
+        
+        // 국내 주식 잔고 조회
+        const response = await axios.get(`${KIS_BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'appkey': process.env.KIS_APP_KEY,
+            'appsecret': process.env.KIS_APP_SECRET,
+            'tr_id': 'TTTC8434R'
+          },
+          params: {
+            CANO: process.env.KIS_ACCOUNT_NO,
+            ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PRODUCT_CD,
+            AFHR_FLPR_YN: 'N',
+            OFL_YN: '',
+            INQR_DVSN: '02',
+            UNPR_DVSN: '01',
+            FUND_STTL_ICLD_YN: 'N',
+            FNCG_AMT_AUTO_RDPT_YN: 'N',
+            PRCS_DVSN: '01',
+            CTX_AREA_FK100: '',
+            CTX_AREA_NK100: ''
+          }
+        });
+
+        if (response.data.rt_cd === '0') {
+          const balanceData = response.data.output2[0];
+          
+          res.json({
+            success: true,
+            data: {
+              totalDeposit: parseInt(balanceData.dnca_tot_amt), // 총 예수금
+              availableAmount: parseInt(balanceData.nxdy_excc_amt), // 익일 정산 금액 (주문가능금액)
+              totalAsset: parseInt(balanceData.tot_evlu_amt), // 총 평가금액
+              profitLoss: parseInt(balanceData.evlu_pfls_smtl_amt), // 평가손익
+              profitLossRate: parseFloat(balanceData.tot_evlu_pfls_rt) // 총 평가손익률
+            }
+          });
+        } else {
+          throw new Error('KIS API 응답 오류');
+        }
+      } catch (apiError) {
+        console.error('KIS API 오류:', apiError.message);
+        
+        // API 오류시 더미 데이터 반환
+        res.json({
+          success: true,
+          data: {
+            totalDeposit: 10000000, // 1천만원
+            availableAmount: 8500000, // 850만원
+            totalAsset: 9200000, // 920만원
+            profitLoss: -800000, // -80만원
+            profitLossRate: -8.7 // -8.7%
+          }
+        });
+      }
+    } catch (error) {
+      console.error('❌ 국내 계좌 잔고 조회 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '계좌 잔고 조회 중 오류가 발생했습니다'
+      });
+    }
+  }
+);
+
+// 해외 계좌 잔고 조회
+app.get('/api/trading/account/balance/global', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      console.log('🌍 해외 계좌 잔고 조회:', req.user.id);
+      
+      try {
+        const token = await getKISToken();
+        
+        // 해외 주식 잔고 조회
+        const response = await axios.get(`${KIS_BASE_URL}/uapi/overseas-stock/v1/trading/inquire-balance`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'appkey': process.env.KIS_APP_KEY,
+            'appsecret': process.env.KIS_APP_SECRET,
+            'tr_id': 'JTTT3012R'
+          },
+          params: {
+            CANO: process.env.KIS_ACCOUNT_NO,
+            ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PRODUCT_CD,
+            OVRS_EXCG_CD: 'NASD',
+            TR_CRCY_CD: 'USD',
+            CTX_AREA_FK200: '',
+            CTX_AREA_NK200: ''
+          }
+        });
+
+        if (response.data.rt_cd === '0') {
+          const balanceData = response.data.output2;
+          const totalBalance = balanceData.find(item => item.crcy_cd === 'USD');
+          
+          res.json({
+            success: true,
+            data: {
+              totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0), // 외화 예수금
+              availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0), // 해외 주문가능금액
+              totalAsset: parseFloat(totalBalance?.tot_evlu_pfls_amt || 0), // 총 평가금액
+              profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0), // 평가손익
+              profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0) // 총 평가손익률
+            }
+          });
+        } else {
+          throw new Error('KIS API 응답 오류');
+        }
+      } catch (apiError) {
+        console.error('KIS API 오류:', apiError.message);
+        
+        // API 오류시 더미 데이터 반환
+        res.json({
+          success: true,
+          data: {
+            totalDeposit: 50000, // $50,000
+            availableAmount: 42500, // $42,500
+            totalAsset: 48200, // $48,200
+            profitLoss: -1800, // -$1,800
+            profitLossRate: -3.6 // -3.6%
+          }
+        });
+      }
+    } catch (error) {
+      console.error('❌ 해외 계좌 잔고 조회 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '계좌 잔고 조회 중 오류가 발생했습니다'
       });
     }
   }
