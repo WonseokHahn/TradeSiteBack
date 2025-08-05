@@ -5,7 +5,8 @@ const {
   startAutoTrading, 
   stopAutoTrading, 
   getBestStrategies,
-  getTradingStatus 
+  getTradingStatus,
+  getTradingHistory
 } = require('../controllers/tradingController');
 const { authenticateJWT } = require('../middleware/auth');
  
@@ -23,5 +24,8 @@ router.get('/strategies/best', getBestStrategies);
 router.post('/start', startAutoTrading);
 router.post('/stop', stopAutoTrading);
 router.get('/status', getTradingStatus);
+
+// 매매 이력 관련
+router.get('/history', getTradingHistory);
 
 module.exports = router;
