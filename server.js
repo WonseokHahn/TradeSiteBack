@@ -1118,7 +1118,7 @@ app.get('/api/trading/account/balance/domestic',
   async (req, res) => {
     try {
       console.log('💰 국내 계좌 잔고 조회:', req.user.id);
-      
+      console.dir(response.data, { depth: null })
       try {
         const token = await getKISToken();
         
