@@ -448,6 +448,86 @@ app.get('/api/trading/status',
   }
 );
 
+// Trading 라우터 섹션에 추가 (기존 /api/trading/status 아래에)
+app.get('/api/trading/strategies/best', async (req, res) => {
+  try {
+    console.log('🎯 최적 전략 요청');
+    
+    // 임시 mock 데이터 (실제 로직으로 교체하세요)
+    const bestStrategy = {
+      name: "모멘텀 전략",
+      description: "단기 상승 추세를 포착하는 전략입니다",
+      period: "5일",
+      riskLevel: "중간",
+      expectedReturn: "12%",
+      lastUpdated: new Date().toISOString(),
+      indicators: [
+        { name: "RSI", value: 65, signal: "매수" },
+        { name: "MACD", value: 1.2, signal: "상승" },
+        { name: "볼린저밴드", value: "상단 근접", signal: "관찰" }
+      ]
+    };
+
+    res.json({
+      success: true,
+      data: bestStrategy,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ 최적 전략 조회 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '최적 전략을 불러오는 중 오류가 발생했습니다.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// 추가로 다른 전략 관련 라우트들도 만들 수 있습니다
+app.get('/api/trading/strategies', async (req, res) => {
+  try {
+    console.log('📊 전략 목록 요청');
+    
+    const strategies = [
+      {
+        id: 1,
+        name: "모멘텀 전략",
+        type: "단기",
+        riskLevel: "중간",
+        description: "상승 추세를 포착하는 전략"
+      },
+      {
+        id: 2,
+        name: "가치 투자 전략",
+        type: "장기",
+        riskLevel: "낮음",
+        description: "저평가된 주식을 찾는 전략"
+      },
+      {
+        id: 3,
+        name: "스윙 트레이딩",
+        type: "중기",
+        riskLevel: "높음",
+        description: "변동성을 활용한 매매 전략"
+      }
+    ];
+
+    res.json({
+      success: true,
+      data: strategies,
+      total: strategies.length
+    });
+
+  } catch (error) {
+    console.error('❌ 전략 목록 조회 실패:', error);
+    res.status(500).json({
+      success: false,
+      message: '전략 목록을 불러오는 중 오류가 발생했습니다.'
+    });
+  }
+});
+
 // 에러 핸들링
 app.use((err, req, res, next) => {
   console.error('💥 서버 에러:', err);
