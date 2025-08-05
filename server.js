@@ -675,6 +675,152 @@ app.get('/api/trading/strategies/:id', async (req, res) => {
   }
 });
 
+// Trading 매매 이력 라우터 (기존 Trading 라우트들 뒤에 추가)
+app.get('/api/trading/history', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      console.log('📈 매매 이력 조회 요청:', req.user.id);
+      
+      // PostgreSQL에서 매매 이력 조회
+      const { query } = require('./src/config/database');
+      
+      const result = await query(
+        `SELECT 
+           to.id,
+           to.stock_code,
+           to.stock_name,
+           to.region,
+           to.order_type,
+           to.quantity,
+           to.order_price,
+           to.executed_price,
+           to.total_amount,
+           to.status,
+           to.executed_at,
+           to.created_at,
+           ts.strategy_name
+         FROM trading_orders to
+         LEFT JOIN trading_strategies ts ON to.strategy_id = ts.id
+         WHERE to.user_id = $1
+         ORDER BY to.created_at DESC
+         LIMIT 50`,
+        [req.user.id]
+      );
+
+      // 데이터가 없을 경우 빈 배열 반환
+      const orders = result.rows || [];
+
+      console.log(`✅ 매매 이력 조회 완료: ${orders.length}건`);
+
+      res.json({
+        success: true,
+        data: orders,
+        total: orders.length
+      });
+
+    } catch (error) {
+      console.error('❌ 매매 이력 조회 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '매매 이력 조회 중 오류가 발생했습니다.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+// 테스트용 더미 매매 이력 생성 라우트 (개발용)
+app.post('/api/trading/history/test', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      console.log('🧪 테스트 매매 이력 생성:', req.user.id);
+      
+      const { query } = require('./src/config/database');
+      
+      // 더미 데이터 생성
+      const dummyOrders = [
+        {
+          stock_code: '005930',
+          stock_name: '삼성전자',
+          region: 'domestic',
+          order_type: 'BUY',
+          quantity: 10,
+          executed_price: 75000,
+          total_amount: 750000,
+          status: 'FILLED'
+        },
+        {
+          stock_code: 'AAPL',
+          stock_name: 'Apple Inc.',
+          region: 'global',
+          order_type: 'BUY',
+          quantity: 5,
+          executed_price: 180.50,
+          total_amount: 902.50,
+          status: 'FILLED'
+        },
+        {
+          stock_code: '000660',
+          stock_name: 'SK하이닉스',
+          region: 'domestic',
+          order_type: 'SELL',
+          quantity: 3,
+          executed_price: 120000,
+          total_amount: 360000,
+          status: 'FILLED'
+        }
+      ];
+
+      // 현재 활성 전략 조회
+      const strategyResult = await query(
+        'SELECT id FROM trading_strategies WHERE user_id = $1 AND is_active = true LIMIT 1',
+        [req.user.id]
+      );
+
+      const strategyId = strategyResult.rows[0]?.id || null;
+
+      // 더미 주문 데이터 삽입
+      for (const order of dummyOrders) {
+        await query(
+          `INSERT INTO trading_orders 
+           (user_id, strategy_id, stock_code, stock_name, region, order_type, quantity, 
+            order_price, executed_price, total_amount, status, executed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)`,
+          [
+            req.user.id,
+            strategyId,
+            order.stock_code,
+            order.stock_name,
+            order.region,
+            order.order_type,
+            order.quantity,
+            order.executed_price,
+            order.executed_price,
+            order.total_amount,
+            order.status
+          ]
+        );
+      }
+
+      console.log('✅ 테스트 매매 이력 생성 완료');
+
+      res.json({
+        success: true,
+        message: `${dummyOrders.length}개의 테스트 매매 이력이 생성되었습니다.`
+      });
+
+    } catch (error) {
+      console.error('❌ 테스트 매매 이력 생성 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '테스트 매매 이력 생성 중 오류가 발생했습니다.'
+      });
+    }
+  }
+);
+
 // 에러 핸들링
 app.use((err, req, res, next) => {
   console.error('💥 서버 에러:', err);
