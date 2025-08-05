@@ -708,7 +708,7 @@ app.get('/api/trading/strategies/:id', async (req, res) => {
   }
 });
 
-// Trading 매매 이력 라우터 - 안전한 버전
+// Trading 매매 이력 라우터 - 안전한 버전 (기존 코드를 이것으로 교체)
 app.get('/api/trading/history', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
@@ -718,8 +718,19 @@ app.get('/api/trading/history',
       let orders = [];
       
       try {
-        // 데이터베이스 연결 시도
-        const { query } = require('./src/config/database');
+        // 데이터베이스 연결 시도 - 안전한 방식
+        let query;
+        try {
+          const dbModule = require('./src/config/database');
+          query = dbModule.query;
+          
+          if (!query) {
+            throw new Error('Query function not available');
+          }
+        } catch (dbImportError) {
+          console.error('❌ 데이터베이스 모듈 로드 실패:', dbImportError.message);
+          throw new Error('Database not available');
+        }
         
         // 테이블 존재 확인
         const tableCheck = await query(
@@ -729,35 +740,37 @@ app.get('/api/trading/history',
            );`
         );
         
-        if (tableCheck.rows[0].exists) {
+        if (tableCheck && tableCheck.rows && tableCheck.rows[0] && tableCheck.rows[0].exists) {
           console.log('✅ trading_orders 테이블 확인됨');
           
-          // 실제 데이터 조회
+          // 실제 데이터 조회 - 더 안전한 쿼리
           const result = await query(
             `SELECT 
-               to.id,
-               to.stock_code,
-               to.stock_name,
-               to.region,
-               to.order_type,
-               to.quantity,
-               to.order_price,
-               to.executed_price,
-               to.total_amount,
-               to.status,
-               to.executed_at,
-               to.created_at,
-               ts.strategy_name
-             FROM trading_orders to
-             LEFT JOIN trading_strategies ts ON to.strategy_id = ts.id
-             WHERE to.user_id = $1
-             ORDER BY to.created_at DESC
+               o.id,
+               o.stock_code,
+               o.stock_name,
+               o.region,
+               o.order_type,
+               o.quantity,
+               o.order_price,
+               o.executed_price,
+               o.total_amount,
+               o.status,
+               o.executed_at,
+               o.created_at,
+               COALESCE(s.strategy_name, '기본 전략') as strategy_name
+             FROM trading_orders o
+             LEFT JOIN trading_strategies s ON o.strategy_id = s.id
+             WHERE o.user_id = $1
+             ORDER BY COALESCE(o.executed_at, o.created_at) DESC
              LIMIT 50`,
             [req.user.id]
           );
           
-          orders = result.rows || [];
-          console.log(`📊 실제 매매 이력: ${orders.length}건`);
+          if (result && result.rows) {
+            orders = result.rows;
+            console.log(`📊 실제 매매 이력: ${orders.length}건`);
+          }
         } else {
           console.log('⚠️ trading_orders 테이블이 존재하지 않음');
         }
@@ -768,7 +781,8 @@ app.get('/api/trading/history',
       }
       
       // 데이터가 없거나 DB 오류시 더미 데이터 제공
-      if (orders.length === 0) {
+      if (!orders || orders.length === 0) {
+        const now = new Date();
         orders = [
           {
             id: 1,
@@ -781,8 +795,8 @@ app.get('/api/trading/history',
             executed_price: 75000,
             total_amount: 750000,
             status: 'FILLED',
-            executed_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
+            executed_at: new Date(now.getTime() - 300000).toISOString(), // 5분 전
+            created_at: new Date(now.getTime() - 300000).toISOString(),
             strategy_name: '상승장 국내 전략'
           },
           {
@@ -796,14 +810,14 @@ app.get('/api/trading/history',
             executed_price: 180.50,
             total_amount: 902.50,
             status: 'FILLED',
-            executed_at: new Date(Date.now() - 3600000).toISOString(),
-            created_at: new Date(Date.now() - 3600000).toISOString(),
+            executed_at: new Date(now.getTime() - 1800000).toISOString(), // 30분 전
+            created_at: new Date(now.getTime() - 1800000).toISOString(),
             strategy_name: '글로벌 기술주 전략'
           },
           {
             id: 3,
             stock_code: '000660',
-            stock_name: 'SK하이닉스',
+            stock_name: 'SK하이닉스',  
             region: 'domestic',
             order_type: 'SELL',
             quantity: 3,
@@ -811,8 +825,8 @@ app.get('/api/trading/history',
             executed_price: 119500,
             total_amount: 358500,
             status: 'FILLED',
-            executed_at: new Date(Date.now() - 7200000).toISOString(),
-            created_at: new Date(Date.now() - 7200000).toISOString(),
+            executed_at: new Date(now.getTime() - 3600000).toISOString(), // 1시간 전
+            created_at: new Date(now.getTime() - 3600000).toISOString(),
             strategy_name: '상승장 국내 전략'
           },
           {
@@ -826,8 +840,8 @@ app.get('/api/trading/history',
             executed_price: 415.30,
             total_amount: 830.60,
             status: 'FILLED',
-            executed_at: new Date(Date.now() - 10800000).toISOString(),
-            created_at: new Date(Date.now() - 10800000).toISOString(),
+            executed_at: new Date(now.getTime() - 7200000).toISOString(), // 2시간 전
+            created_at: new Date(now.getTime() - 7200000).toISOString(),
             strategy_name: '글로벌 기술주 전략'
           },
           {
@@ -838,42 +852,94 @@ app.get('/api/trading/history',
             order_type: 'BUY',
             quantity: 8,
             order_price: 185000,
-            executed_price: 184500,
+            executed_price: 184500, 
             total_amount: 1476000,
             status: 'FILLED',
-            executed_at: new Date(Date.now() - 14400000).toISOString(),
-            created_at: new Date(Date.now() - 14400000).toISOString(),
+            executed_at: new Date(now.getTime() - 14400000).toISOString(), // 4시간 전
+            created_at: new Date(now.getTime() - 14400000).toISOString(),
             strategy_name: '상승장 국내 전략'
+          },
+          {
+            id: 6,
+            stock_code: 'GOOGL',
+            stock_name: 'Alphabet Inc.',
+            region: 'global',
+            order_type: 'BUY',
+            quantity: 1,
+            order_price: 2850.75,
+            executed_price: 2845.20,
+            total_amount: 2845.20,
+            status: 'PARTIALLY_FILLED',
+            executed_at: new Date(now.getTime() - 21600000).toISOString(), // 6시간 전
+            created_at: new Date(now.getTime() - 21600000).toISOString(),
+            strategy_name: '글로벌 기술주 전략'
           }
         ];
         
         console.log(`🎭 더미 매매 이력 제공: ${orders.length}건`);
       }
 
+      // 응답 데이터 정리
+      const cleanedOrders = orders.map(order => ({
+        id: order.id,
+        stock_code: order.stock_code,
+        stock_name: order.stock_name || '종목명',
+        region: order.region || 'domestic',
+        order_type: order.order_type,
+        quantity: parseInt(order.quantity) || 0,
+        order_price: parseFloat(order.order_price) || 0,
+        executed_price: parseFloat(order.executed_price) || parseFloat(order.order_price) || 0,
+        total_amount: parseFloat(order.total_amount) || 0,
+        status: order.status || 'FILLED',
+        executed_at: order.executed_at,
+        created_at: order.created_at,
+        strategy_name: order.strategy_name || '기본 전략'
+      }));
+
       res.json({
         success: true,
-        data: orders,
-        total: orders.length,
-        message: orders.length > 0 ? '매매 이력을 성공적으로 조회했습니다.' : '매매 이력이 없습니다.'
+        data: cleanedOrders,
+        total: cleanedOrders.length,
+        message: cleanedOrders.length > 0 ? '매매 이력을 성공적으로 조회했습니다.' : '매매 이력이 없습니다.'
       });
 
     } catch (error) {
       console.error('❌ 매매 이력 조회 심각한 오류:', error);
       
-      // 최후의 수단: 빈 배열 반환
+      // 최후의 수단: 기본 더미 데이터 반환
+      const fallbackOrders = [
+        {
+          id: 1,
+          stock_code: '005930',
+          stock_name: '삼성전자',
+          region: 'domestic',
+          order_type: 'BUY',
+          quantity: 10,
+          order_price: 75000,
+          executed_price: 75000,
+          total_amount: 750000,
+          status: 'FILLED',
+          executed_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          strategy_name: '기본 전략'
+        }
+      ];
+      
       res.json({
         success: true,
-        data: [],
-        total: 0,
-        message: '매매 이력 조회 중 오류가 발생했습니다.',
+        data: fallbackOrders,
+        total: fallbackOrders.length,
+        message: '매매 이력 조회 중 오류가 발생하여 샘플 데이터를 표시합니다.',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
 );
 
+
 // 기존 trading/status 라우트도 안전하게 수정
 // 기존 코드를 찾아서 교체하세요 (라인 313-322 정도)
+// Trading 상태 조회도 안전하게 수정
 app.get('/api/trading/status', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
@@ -883,7 +949,15 @@ app.get('/api/trading/status',
       let strategy = null;
       
       try {
-        const { query } = require('./src/config/database');
+        // 데이터베이스 연결 시도 - 안전한 방식
+        let query;
+        try {
+          const dbModule = require('./src/config/database');
+          query = dbModule.query;
+        } catch (dbImportError) {
+          console.error('❌ 데이터베이스 모듈 로드 실패:', dbImportError.message);
+          throw new Error('Database not available');
+        }
         
         const result = await query(
           `SELECT * FROM trading_strategies 
@@ -893,10 +967,18 @@ app.get('/api/trading/status',
           [req.user.id]
         );
 
-        strategy = result.rows[0] || null;
-        
-        if (strategy && typeof strategy.stocks === 'string') {
-          strategy.stocks = JSON.parse(strategy.stocks);
+        if (result && result.rows && result.rows.length > 0) {
+          strategy = result.rows[0];
+          
+          // stocks 필드가 JSON 문자열인 경우 파싱
+          if (strategy.stocks && typeof strategy.stocks === 'string') {
+            try {
+              strategy.stocks = JSON.parse(strategy.stocks);
+            } catch (parseError) {
+              console.error('JSON 파싱 오류:', parseError);
+              strategy.stocks = [];
+            }
+          }
         }
       } catch (dbError) {
         console.error('❌ 전략 상태 DB 조회 오류:', dbError.message);
@@ -922,6 +1004,8 @@ app.get('/api/trading/status',
     }
   }
 );
+
+
 // 국내 주식 정보 조회
 app.get('/api/trading/stock/info/domestic', 
   passport.authenticate('jwt', { session: false }),
@@ -1118,10 +1202,10 @@ app.get('/api/trading/account/balance/domestic',
   async (req, res) => {
     try {
       console.log('💰 국내 계좌 잔고 조회:', req.user.id);
-      console.dir(response.data, { depth: null })
       try {
         const token = await getKISToken();
-        
+        console.log('발급받은 KIS 토큰:', token);
+
         // 국내 주식 잔고 조회
         const response = await axios.get(`${KIS_BASE_URL}/uapi/domestic-stock/v1/trading/inquire-balance`, {
           headers: {
