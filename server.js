@@ -567,17 +567,24 @@ app.get('/api/trading/account/balance/global',
       }
 
 
-      const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', {
+      const apiParams = {
         CANO: accountNo, // 8자리 숫자 (실전투자)
         ACNT_PRDT_CD: productCd, // 2자리 (01, 02 등)
-        OVRS_EXCG_CD: '',
-        TR_CRCY_CD: '',
+        OVRS_EXCG_CD: 'NASD',
+        TR_CRCY_CD: 'USD',
         CTX_AREA_FK200: '',
         CTX_AREA_NK200: ''
-      }, {
-        'tr_id': 'JTTT3012R'
+      };
+
+      const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
+        'tr_id': 'JTTT3012R' // 실전투자용
       });
 
+      // 응답 데이터 상세 로깅
+      console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
+      console.log('🔍 rt_cd:', apiData.rt_cd, 'msg_cd:', apiData.msg_cd, 'msg1:', apiData.msg1);
+      
+      // rt_cd가 0이 아닌 경우 오류 처리
       // if (apiData && apiData.output2) {
       //   const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
         
@@ -602,6 +609,8 @@ app.get('/api/trading/account/balance/global',
       //   throw new Error('해외 잔고 정보가 없습니다');
       // }
       if (apiData && apiData.output2) {
+        console.log('📊 output2 데이터 확인:', apiData.output2);
+
         let totalBalance;
         console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
         // output2가 배열인지 확인
