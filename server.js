@@ -577,7 +577,7 @@ app.get('/api/trading/account/balance/global',
       };
 
       const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
-        'tr_id': 'TTTS3012R' // 실전투자용
+        'tr_id': 'JTTT3012R' // 실전투자용
       });
 
       // 응답 데이터 상세 로깅
@@ -585,41 +585,8 @@ app.get('/api/trading/account/balance/global',
       console.log('🔍 rt_cd:', apiData.rt_cd, 'msg_cd:', apiData.msg_cd, 'msg1:', apiData.msg1);
       
       // rt_cd가 0이 아닌 경우 오류 처리
-      // if (apiData && apiData.output2) {
-      //   const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
-        
-      //   const responseData = {
-      //     totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
-      //     availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0),
-      //     totalAsset: parseFloat(totalBalance?.tot_evlu_pfls_amt || 0),
-      //     profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0),
-      //     profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0)
-      //   };
-
-      //   console.log('✅ 해외 계좌 잔고 조회 성공:', {
-      //     totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
-      //     availableAmount: `$${responseData.availableAmount.toLocaleString()}`
-      //   });
-
-      //   res.json({
-      //     success: true,
-      //     data: responseData
-      //   });
-      // } else {
-      //   throw new Error('해외 잔고 정보가 없습니다');
-      // }
       if (apiData && apiData.output2) {
-        console.log('📊 output2 데이터 확인:', apiData.output2);
-
-        let totalBalance;
-        console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
-        // output2가 배열인지 확인
-        if (Array.isArray(apiData.output2)) {
-          totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
-        } else {
-          totalBalance = apiData.output2;  // 단일 객체일 경우 그대로 사용
-        }
-        console.log('🧾 totalBalance:', totalBalance);
+        const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
         
         const responseData = {
           totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
@@ -628,12 +595,12 @@ app.get('/api/trading/account/balance/global',
           profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0),
           profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0)
         };
-      
+
         console.log('✅ 해외 계좌 잔고 조회 성공:', {
           totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
           availableAmount: `$${responseData.availableAmount.toLocaleString()}`
         });
-      
+
         res.json({
           success: true,
           data: responseData
@@ -641,7 +608,6 @@ app.get('/api/trading/account/balance/global',
       } else {
         throw new Error('해외 잔고 정보가 없습니다');
       }
-
     } catch (error) {
       console.error('❌ 해외 계좌 잔고 조회 오류:', error.message);
       
