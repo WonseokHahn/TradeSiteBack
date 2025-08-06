@@ -141,8 +141,8 @@ class KISTokenManager {
       // 이미 토큰을 가져오는 중이면 대기
       if (this.isGettingToken) {
         console.log('⏳ 다른 요청이 토큰을 가져오는 중...');
-        // 최대 10초 대기
-        for (let i = 0; i < 100; i++) {
+        // 최대 15초 대기
+        for (let i = 0; i < 150; i++) {
           await new Promise(resolve => setTimeout(resolve, 100));
           if (this.isTokenValid() && !this.isGettingToken) {
             return this.accessToken;
@@ -159,13 +159,25 @@ class KISTokenManager {
         appkey: process.env.KIS_APP_KEY,
         appsecret: process.env.KIS_APP_SECRET
       }, {
-        timeout: 10000,
+        timeout: 30000, // 30초 타임아웃
         headers: {
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json'
+        },
+        // HTTP Agent 설정
+        httpAgent: new (require('http')).Agent({ 
+          keepAlive: true, 
+          timeout: 30000
+        }),
+        httpsAgent: new (require('https')).Agent({ 
+          keepAlive: true, 
+          timeout: 30000,
+          rejectUnauthorized: false
+        })
       });
 
-      if (response.data.access_token) {
+      if (response.data && response.data.access_token) {
         this.accessToken = response.data.access_token;
         // expires_in은 초 단위이므로 밀리초로 변환
         this.tokenExpiry = Date.now() + (response.data.expires_in * 1000);
@@ -173,20 +185,32 @@ class KISTokenManager {
         console.log('✅ KIS 토큰 발급 성공');
         console.log(`📅 토큰 만료 시간: ${new Date(this.tokenExpiry).toLocaleString()}`);
         console.log(`⏰ 토큰 유효 시간: ${Math.floor(response.data.expires_in / 3600)}시간`);
+        console.log(`🔑 토큰 앞 20자리: ${this.accessToken.substring(0, 20)}...`);
         
         return this.accessToken;
       } else {
+        console.error('❌ 토큰 응답 구조:', response.data);
         throw new Error('토큰 응답에 access_token이 없습니다');
       }
 
     } catch (error) {
-      console.error('❌ KIS 토큰 발급 실패:', {
+      console.error('❌ KIS 토큰 발급 상세 오류:', {
         message: error.message,
         status: error.response?.status,
         statusText: error.response?.statusText,
-        data: error.response?.data
+        data: error.response?.data,
+        code: error.code,
+        errno: error.errno
       });
-      throw new Error(`KIS 토큰 발급 실패: ${error.message}`);
+
+      // 네트워크 오류인 경우 더 구체적인 메시지
+      if (error.code === 'ECONNRESET' || error.message === 'socket hang up') {
+        throw new Error('KIS API 서버 연결이 끊어졌습니다. 잠시 후 다시 시도해주세요.');
+      } else if (error.code === 'ETIMEDOUT') {
+        throw new Error('KIS API 서버 응답 시간이 초과되었습니다.');
+      } else {
+        throw new Error(`KIS 토큰 발급 실패: ${error.message}`);
+      }
     } finally {
       this.isGettingToken = false;
     }
@@ -206,7 +230,7 @@ const kisTokenManager = new KISTokenManager();
 
 // KIS API 호출 헬퍼 함수
 async function makeKISRequest(endpoint, params = {}, headers = {}, retryCount = 0) {
-  const maxRetries = 2;
+  const maxRetries = 3;
   
   try {
     const token = await kisTokenManager.getToken();
@@ -217,34 +241,81 @@ async function makeKISRequest(endpoint, params = {}, headers = {}, retryCount = 
         'appkey': process.env.KIS_APP_KEY,
         'appsecret': process.env.KIS_APP_SECRET,
         'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Connection': 'keep-alive',
         ...headers
       },
       params,
-      timeout: 15000
+      timeout: 30000, // 30초로 증가
+      // HTTP Agent 설정으로 연결 안정성 향상
+      httpAgent: new (require('http')).Agent({ 
+        keepAlive: true, 
+        maxSockets: 5,
+        timeout: 30000
+      }),
+      httpsAgent: new (require('https')).Agent({ 
+        keepAlive: true, 
+        maxSockets: 5,
+        timeout: 30000,
+        rejectUnauthorized: false // SSL 인증서 문제 해결
+      }),
+      // 연결 재시도 설정
+      retry: 3,
+      retryDelay: 2000
     };
 
-    console.log(`🔍 KIS API 요청: ${endpoint}`);
+    console.log(`🔍 KIS API 요청 (${retryCount + 1}번째): ${endpoint}`);
+    console.log('📝 요청 파라미터:', params);
+    
+    // 재시도 시 잠시 대기
+    if (retryCount > 0) {
+      console.log(`⏳ ${retryCount * 2}초 대기 후 재시도...`);
+      await new Promise(resolve => setTimeout(resolve, retryCount * 2000));
+    }
+
     const response = await axios.get(`${KIS_BASE_URL}${endpoint}`, config);
+    
+    console.log(`✅ KIS API 응답 성공: ${endpoint} (상태코드: ${response.status})`);
+    console.log('📊 응답 데이터:', response.data.rt_cd ? `rt_cd: ${response.data.rt_cd}` : '데이터 확인 필요');
     
     // 응답 성공 확인
     if (response.data.rt_cd === '0' || response.status === 200) {
-      console.log(`✅ KIS API 응답 성공: ${endpoint}`);
       return response.data;
     } else {
-      throw new Error(`KIS API 오류: ${response.data.msg1 || 'Unknown error'}`);
+      throw new Error(`KIS API 오류 [${response.data.rt_cd}]: ${response.data.msg1 || response.data.msg || 'Unknown error'}`);
     }
 
   } catch (error) {
     console.error(`❌ KIS API 요청 실패 (${retryCount + 1}/${maxRetries + 1}):`, {
       endpoint,
       message: error.message,
-      status: error.response?.status
+      status: error.response?.status,
+      code: error.code,
+      errno: error.errno,
+      syscall: error.syscall
     });
 
-    // 토큰 관련 오류이고 재시도 가능한 경우
-    if (error.response?.status === 401 && retryCount < maxRetries) {
-      console.log('🔄 토큰 오류로 인한 재시도...');
-      await kisTokenManager.refreshToken();
+    // 네트워크 오류나 타임아웃 오류인 경우 재시도
+    const isRetryableError = 
+      error.code === 'ECONNRESET' ||
+      error.code === 'ENOTFOUND' ||
+      error.code === 'ECONNREFUSED' ||
+      error.code === 'ETIMEDOUT' ||
+      error.message === 'socket hang up' ||
+      error.message.includes('timeout') ||
+      error.response?.status === 401 ||
+      error.response?.status >= 500;
+
+    if (isRetryableError && retryCount < maxRetries) {
+      console.log(`🔄 재시도 가능한 오류 감지. ${maxRetries - retryCount}번 더 시도...`);
+      
+      // 401 오류면 토큰 갱신
+      if (error.response?.status === 401) {
+        console.log('🔑 토큰 오류로 인한 토큰 갱신...');
+        await kisTokenManager.refreshToken();
+      }
+      
       return makeKISRequest(endpoint, params, headers, retryCount + 1);
     }
 
