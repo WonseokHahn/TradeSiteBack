@@ -570,8 +570,8 @@ app.get('/api/trading/account/balance/global',
       const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', {
         CANO: accountNo, // 8자리 숫자 (실전투자)
         ACNT_PRDT_CD: productCd, // 2자리 (01, 02 등)
-        OVRS_EXCG_CD: 'NASD',
-        TR_CRCY_CD: 'USD',
+        OVRS_EXCG_CD: '',
+        TR_CRCY_CD: '',
         CTX_AREA_FK200: '',
         CTX_AREA_NK200: ''
       }, {
