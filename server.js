@@ -583,8 +583,8 @@ app.get('/api/trading/account/balance/global',
         });
       }
 
-      // 🔥 핵심: NASD + USD 조합으로 해외주식 잔고 조회
-      console.log('🔍 NASD USD 해외주식 잔고 조회 중...');
+      // 🔥 핵심: 해외현금잔고조회 (외화예수금 조회)
+      console.log('🔍 해외현금잔고조회 (TTTS3012R) 실행 중...');
       
       const apiParams = {
         CANO: accountNo,
@@ -596,7 +596,7 @@ app.get('/api/trading/account/balance/global',
       };
 
       console.log('📋 API 파라미터:', apiParams);
-      console.log('📋 헤더:', { tr_id: 'JTTT3012R' });
+      console.log('📋 헤더:', { tr_id: 'TTTS3012R' });
 
       const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
         'tr_id': 'TTTS3012R'
@@ -632,9 +632,52 @@ app.get('/api/trading/account/balance/global',
 
       let hasBalance = false;
 
-      // 🔥 output1 분석 (보유 종목)
+      // 🔥 외화예수금 직접 추출 (output.ord_psbl_cash)
+      if (apiData.output && apiData.output.ord_psbl_cash) {
+        const ordPsblCash = parseFloat(apiData.output.ord_psbl_cash || 0);
+        
+        if (ordPsblCash > 0) {
+          console.log('💰 외화예수금 발견:', `${ordPsblCash.toLocaleString()}`);
+          
+          responseData.totalDeposit = ordPsblCash;
+          responseData.availableAmount = ordPsblCash; // 주문가능금액도 동일하게 설정
+          responseData.totalAsset = ordPsblCash;
+          hasBalance = true;
+        }
+      }
+
+      // 🔥 전체 output 구조 확인 및 추가 필드 탐색
+      if (apiData.output) {
+        console.log('📊 전체 output 구조:', apiData.output);
+        
+        // output 안의 모든 필드를 확인하여 추가 정보 추출
+        Object.keys(apiData.output).forEach(key => {
+          const value = parseFloat(apiData.output[key] || 0);
+          if (!isNaN(value) && value !== 0) {
+            console.log(`  💵 ${key}: ${value.toLocaleString()}`);
+            
+            // ord_psbl_cash 외의 다른 중요 필드들도 확인
+            if (key.includes('cash') || key.includes('amt') || key.includes('bal')) {
+              hasBalance = true;
+              
+              // 추가 정보가 있으면 업데이트
+              if (key.includes('tot') || key.includes('total')) {
+                responseData.totalAsset = Math.max(responseData.totalAsset, value);
+              }
+              if (key.includes('avail') || key.includes('psbl')) {
+                responseData.availableAmount = Math.max(responseData.availableAmount, value);
+              }
+            }
+          }
+        });
+      }
+
+      // 🔥 보유 종목도 함께 확인 (output1)
       if (apiData.output1 && Array.isArray(apiData.output1) && apiData.output1.length > 0) {
         console.log('📈 보유 종목 발견:', apiData.output1.length, '개');
+        
+        let stockAssetTotal = 0;
+        let stockProfitTotal = 0;
         
         apiData.output1.forEach((holding, index) => {
           const symbol = holding.ovrs_pdno || holding.pdno || 'Unknown';
@@ -644,99 +687,40 @@ app.get('/api/trading/account/balance/global',
           const evalAmt = parseFloat(holding.ovrs_evlu_amt || holding.evlu_amt || 0);
           const profitAmt = parseFloat(holding.ovrs_evlu_pfls_amt || holding.evlu_pfls_amt || 0);
           
-          console.log(`  💎 ${index + 1}. ${symbol} (${name}): ${qty}주 x $${price} = $${evalAmt.toLocaleString()}`);
+          console.log(`  💎 ${index + 1}. ${symbol} (${name}): ${qty}주 x ${price} = ${evalAmt.toLocaleString()}`);
           
           if (evalAmt > 0) {
-            responseData.totalAsset += evalAmt;
-            responseData.profitLoss += profitAmt;
+            stockAssetTotal += evalAmt;
+            stockProfitTotal += profitAmt;
             hasBalance = true;
           }
         });
-      }
-
-      // 🔥 output2 분석 (잔고 요약) - 외화예수금 포함
-      if (apiData.output2) {
-        console.log('💰 잔고 요약 정보:', apiData.output2);
         
-        const summary = apiData.output2;
-        
-        // 🔥 외화예수금 관련 필드들을 체계적으로 확인
-        const balanceFields = {
-          // 예수금/입금 관련
-          deposit: ['frcr_pchs_amt1', 'frcr_buy_amt_smtl1', 'frcr_dncl_amt', 'ovrs_buy_amt_smtl', 'thdt_buy_amt_smtl'],
-          // 주문가능금액 관련
-          available: ['ovrs_ord_psbl_amt', 'frcr_buy_amt_smtl2', 'nxdy_frcr_buy_amt_smtl'],
-          // 총자산 관련
-          totalAsset: ['tot_evlu_amt', 'frcr_evlu_tota', 'tot_aset_amt', 'frcr_evlu_amt2'],
-          // 손익 관련
-          profit: ['ovrs_rlzt_pfls_amt', 'tot_evlu_pfls_amt', 'evlu_pfls_smtl_amt', 'ovrs_rlzt_pfls_amt2'],
-          // 손익률 관련
-          profitRate: ['tot_pftrt', 'rlzt_erng_rt', 'evlu_pfls_rt']
-        };
-
-        // 각 카테고리별로 최적값 추출
-        Object.keys(balanceFields).forEach(category => {
-          const fields = balanceFields[category];
-          let maxValue = 0;
-          let foundField = null;
-
-          fields.forEach(field => {
-            const value = parseFloat(summary[field] || 0);
-            if (!isNaN(value) && value !== 0) {
-              console.log(`  💵 ${field}: $${value.toLocaleString()}`);
-              if (Math.abs(value) > Math.abs(maxValue)) {
-                maxValue = value;
-                foundField = field;
-              }
-              hasBalance = true;
-            }
-          });
-
-          // 카테고리별 최대값을 응답 데이터에 설정
-          if (maxValue !== 0) {
-            switch (category) {
-              case 'deposit':
-                responseData.totalDeposit = maxValue;
-                console.log(`  ✅ 예수금 발견: $${maxValue.toLocaleString()} (${foundField})`);
-                break;
-              case 'available':
-                responseData.availableAmount = maxValue;
-                console.log(`  ✅ 주문가능금액 발견: $${maxValue.toLocaleString()} (${foundField})`);
-                break;
-              case 'totalAsset':
-                responseData.totalAsset = Math.max(responseData.totalAsset, maxValue);
-                console.log(`  ✅ 총자산 발견: $${maxValue.toLocaleString()} (${foundField})`);
-                break;
-              case 'profit':
-                responseData.profitLoss = maxValue;
-                console.log(`  ✅ 손익금액 발견: $${maxValue.toLocaleString()} (${foundField})`);
-                break;
-              case 'profitRate':
-                responseData.profitLossRate = maxValue;
-                console.log(`  ✅ 손익률 발견: ${maxValue}% (${foundField})`);
-                break;
-            }
-          }
-        });
+        // 보유종목 평가금액을 총자산에 추가
+        if (stockAssetTotal > 0) {
+          responseData.totalAsset += stockAssetTotal;
+          responseData.profitLoss = stockProfitTotal;
+          console.log(`✅ 보유종목 총 평가금액: ${stockAssetTotal.toLocaleString()}`);
+        }
       }
 
       // 🔥 최종 결과 처리
       if (hasBalance) {
-        console.log('✅ 해외 USD 잔고 조회 성공:', {
-          totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
-          availableAmount: `$${responseData.availableAmount.toLocaleString()}`,
-          totalAsset: `$${responseData.totalAsset.toLocaleString()}`,
-          profitLoss: `$${responseData.profitLoss.toLocaleString()}`,
+        console.log('✅ 해외현금잔고조회 성공:', {
+          totalDeposit: `${responseData.totalDeposit.toLocaleString()}`,
+          availableAmount: `${responseData.availableAmount.toLocaleString()}`,
+          totalAsset: `${responseData.totalAsset.toLocaleString()}`,
+          profitLoss: `${responseData.profitLoss.toLocaleString()}`,
           profitLossRate: `${responseData.profitLossRate}%`
         });
 
         res.json({
           success: true,
           data: responseData,
-          message: '해외 USD 잔고 조회 성공'
+          message: '해외현금잔고 (외화예수금) 조회 성공'
         });
       } else {
-        console.log('⚠️ API는 성공했지만 잔고 데이터를 찾을 수 없음');
+        console.log('⚠️ API는 성공했지만 외화예수금을 찾을 수 없음');
         console.log('🔍 전체 응답 데이터:', JSON.stringify(apiData, null, 2));
         
         res.json({
@@ -748,10 +732,11 @@ app.get('/api/trading/account/balance/global',
             profitLoss: 0,
             profitLossRate: 0
           },
-          message: 'API 호출은 성공했으나 USD 잔고 데이터를 찾을 수 없습니다.',
+          message: 'API 호출은 성공했으나 외화예수금 데이터를 찾을 수 없습니다.',
           debug: {
             apiResponse: apiData,
-            note: '응답 데이터를 확인하여 올바른 필드명을 찾아주세요.'
+            expectedField: 'output.ord_psbl_cash',
+            note: 'output 구조를 확인하여 올바른 필드명을 찾아주세요.'
           }
         });
       }
