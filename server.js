@@ -603,14 +603,15 @@ app.get('/api/trading/account/balance/global',
       // }
       if (apiData && apiData.output2) {
         let totalBalance;
-      
+        console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
         // output2가 배열인지 확인
         if (Array.isArray(apiData.output2)) {
           totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
         } else {
           totalBalance = apiData.output2;  // 단일 객체일 경우 그대로 사용
         }
-      
+        console.log('🧾 totalBalance:', totalBalance);
+        
         const responseData = {
           totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
           availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0),
