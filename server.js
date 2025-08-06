@@ -593,7 +593,7 @@ app.get('/api/trading/account/balance/global',
         ORD_UNPR: '65500', // 나스닥
         ORD_DVSN: '01',    // USD 통화
         CMA_EVLU_AMT_ICLD_YN: 'Y',
-        OVRS_ICLD_YN: 'Y'
+        OVRS_ICLD_YN: 'Y' 
       };
 
       console.log('📋 API 파라미터:', apiParams);
