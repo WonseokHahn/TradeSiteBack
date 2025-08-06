@@ -589,10 +589,11 @@ app.get('/api/trading/account/balance/global',
       const apiParams = {
         CANO: accountNo,
         ACNT_PRDT_CD: productCd,
-        OVRS_EXCG_CD: 'NASD', // 나스닥
-        TR_CRCY_CD: 'USD',    // USD 통화
-        CTX_AREA_FK200: '',
-        CTX_AREA_NK200: ''
+        PDNO: '005930', // 나스닥
+        ORD_UNPR: '65500', // 나스닥
+        ORD_DVSN: '01',    // USD 통화
+        CMA_EVLU_AMT_ICLD_YN: 'Y',
+        OVRS_ICLD_YN: 'Y'
       };
 
       console.log('📋 API 파라미터:', apiParams);
