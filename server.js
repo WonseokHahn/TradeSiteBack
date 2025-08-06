@@ -523,7 +523,7 @@ app.get('/api/trading/account/balance/domestic',
   }
 );
 
-// 해외 계좌 잔고 조회 - 다중 거래소 및 디버깅 강화 버전
+// 해외 계좌 잔고 조회 - 수정된 버전 (다중 API 호출 및 통화별 조회)
 app.get('/api/trading/account/balance/global', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
@@ -584,14 +584,6 @@ app.get('/api/trading/account/balance/global',
         });
       }
 
-      // 🔍 다양한 거래소와 통화로 조회 시도
-      const exchanges = [
-        { code: 'NASD', name: '나스닥', currency: 'USD' },
-        { code: 'NYSE', name: '뉴욕증권거래소', currency: 'USD' },
-        { code: '', name: '전체', currency: 'USD' }, // 빈 값으로 전체 조회
-        { code: '', name: '전체', currency: '' }  // 모든 통화
-      ];
-
       let totalResponseData = {
         totalDeposit: 0,
         availableAmount: 0,
@@ -603,127 +595,305 @@ app.get('/api/trading/account/balance/global',
       let hasAnyBalance = false;
       let detailedResults = [];
 
-      // 각 거래소별로 순차 조회
-      for (const exchange of exchanges) {
-        try {
-          console.log(`\n🔍 ${exchange.name} (${exchange.code || '전체'}) 잔고 조회 중...`);
-          
-          const apiParams = {
+      // 🔥 핵심 수정: 다중 API 호출로 완전한 잔고 정보 조회
+      const apiCalls = [
+        // 1. 해외주식 잔고 조회 (보유종목 포함)
+        {
+          name: '해외주식 잔고조회',
+          endpoint: '/uapi/overseas-stock/v1/trading/inquire-balance',
+          params: {
             CANO: accountNo,
             ACNT_PRDT_CD: productCd,
-            OVRS_EXCG_CD: exchange.code, // '', 'NASD', 'NYSE' 등
-            TR_CRCY_CD: exchange.currency, // '', 'USD' 등
+            OVRS_EXCG_CD: '', // 빈값으로 모든 거래소
+            TR_CRCY_CD: '', // 빈값으로 모든 통화
             CTX_AREA_FK200: '',
             CTX_AREA_NK200: ''
-          };
+          },
+          headers: { 'tr_id': 'JTTT3012R' }
+        },
+        
+        // 2. USD 전용 조회
+        {
+          name: 'USD 전용 잔고',
+          endpoint: '/uapi/overseas-stock/v1/trading/inquire-balance',
+          params: {
+            CANO: accountNo,
+            ACNT_PRDT_CD: productCd,
+            OVRS_EXCG_CD: 'NASD', // 나스닥
+            TR_CRCY_CD: 'USD', // USD 전용
+            CTX_AREA_FK200: '',
+            CTX_AREA_NK200: ''
+          },
+          headers: { 'tr_id': 'JTTT3012R' }
+        },
 
-          console.log('📋 API 파라미터:', apiParams);
+        // 3. NYSE 조회
+        {
+          name: 'NYSE 잔고',
+          endpoint: '/uapi/overseas-stock/v1/trading/inquire-balance',
+          params: {
+            CANO: accountNo,
+            ACNT_PRDT_CD: productCd,
+            OVRS_EXCG_CD: 'NYSE', // 뉴욕증권거래소
+            TR_CRCY_CD: 'USD',
+            CTX_AREA_FK200: '',
+            CTX_AREA_NK200: ''
+          },
+          headers: { 'tr_id': 'JTTT3012R' }
+        },
 
-          const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
-            'tr_id': 'JTTT3012R'
-          });
+        // 4. 해외주식 예수금/현금 조회 (다른 tr_id 시도)
+        {
+          name: '해외 예수금 조회',
+          endpoint: '/uapi/overseas-stock/v1/trading/inquire-psamount',
+          params: {
+            CANO: accountNo,
+            ACNT_PRDT_CD: productCd,
+            OVRS_EXCG_CD: 'NASD',
+            OVRS_ORD_UNPR: '0',
+            ITEM_CD: ''
+          },
+          headers: { 'tr_id': 'JTTT3007R' }
+        }
+      ];
+
+      // 순차적으로 API 호출 실행
+      for (const apiCall of apiCalls) {
+        try {
+          console.log(`\n🔍 ${apiCall.name} 조회 중...`);
+          console.log('📋 파라미터:', apiCall.params);
+          console.log('📋 헤더:', apiCall.headers);
+          
+          const apiData = await makeKISRequest(apiCall.endpoint, apiCall.params, apiCall.headers);
 
           if (apiData && apiData.rt_cd === '0') {
-            console.log(`📊 ${exchange.name} 응답:`, {
+            console.log(`📊 ${apiCall.name} 응답 성공:`, {
               rt_cd: apiData.rt_cd,
               msg1: apiData.msg1,
+              has_output1: !!apiData.output1,
               output1_count: apiData.output1?.length || 0,
-              has_output2: !!apiData.output2
+              has_output2: !!apiData.output2,
+              has_output3: !!apiData.output3
             });
 
-            // output1 (보유 종목) 상세 분석
-            if (apiData.output1 && apiData.output1.length > 0) {
-              console.log(`📈 ${exchange.name} 보유 종목:`, apiData.output1.length, '개');
+            // 🔥 output1 (보유 종목) 상세 분석
+            if (apiData.output1 && Array.isArray(apiData.output1) && apiData.output1.length > 0) {
+              console.log(`📈 ${apiCall.name} 보유 종목:`, apiData.output1.length, '개');
+              
               apiData.output1.forEach((holding, index) => {
-                const symbol = holding.ovrs_pdno || holding.pdno || 'Unknown';
-                const name = holding.ovrs_item_name || holding.item_name || 'Unknown';
-                const qty = parseInt(holding.ovrs_cblc_qty || holding.cblc_qty || 0);
-                const price = parseFloat(holding.now_pric2 || holding.ovrs_now_pric || 0);
-                const evalAmt = parseFloat(holding.ovrs_evlu_amt || holding.evlu_amt || 0);
+                // 다양한 필드명 시도 (KIS API 응답이 일관적이지 않음)
+                const symbol = holding.ovrs_pdno || holding.pdno || holding.symb || 'Unknown';
+                const name = holding.ovrs_item_name || holding.item_name || holding.prdt_name || 'Unknown';
+                const qty = parseInt(holding.ovrs_cblc_qty || holding.cblc_qty || holding.ord_psbl_qty || 0);
+                const price = parseFloat(holding.now_pric2 || holding.ovrs_now_pric || holding.base_pric || 0);
+                const evalAmt = parseFloat(holding.ovrs_evlu_amt || holding.evlu_amt || holding.frcr_evlu_amt2 || 0);
+                const profitAmt = parseFloat(holding.ovrs_evlu_pfls_amt || holding.evlu_pfls_amt || 0);
                 
-                console.log(`  ${index + 1}. ${symbol} (${name}): ${qty}주 x $${price} = $${evalAmt}`);
-                
-                if (evalAmt > 0) {
+                if (evalAmt > 0 || qty > 0) {
+                  console.log(`  💎 ${index + 1}. ${symbol} (${name})`);
+                  console.log(`    수량: ${qty}주 | 현재가: $${price} | 평가금액: $${evalAmt} | 손익: $${profitAmt}`);
+                  
                   totalResponseData.totalAsset += evalAmt;
+                  totalResponseData.profitLoss += profitAmt;
                   hasAnyBalance = true;
                 }
               });
             }
 
-            // output2 (잔고 요약) 분석
+            // 🔥 output2 (잔고 요약) 향상된 분석
             if (apiData.output2) {
-              console.log(`💰 ${exchange.name} 잔고 요약:`, apiData.output2);
+              console.log(`💰 ${apiCall.name} 잔고 요약 (output2):`, apiData.output2);
               
               const summary = apiData.output2;
               
-              // 모든 잔고 관련 필드들을 체크
+              // 🔥 가능한 모든 잔고 관련 필드들을 체크
               const balanceFields = [
-                'frcr_pchs_amt1', 'frcr_buy_amt_smtl1', 'frcr_buy_amt_smtl2',
-                'tot_evlu_amt', 'frcr_evlu_tota', 'tot_evlu_pfls_amt',
-                'ovrs_ord_psbl_amt', 'frcr_dncl_amt', 'tot_aset_amt',
-                'ovrs_rlzt_pfls_amt', 'evlu_pfls_smtl_amt'
+                // 예수금 관련
+                'frcr_buy_amt_smtl1', 'frcr_buy_amt_smtl2', 'frcr_dncl_amt', 
+                'ovrs_ord_psbl_amt', 'frcr_pchs_amt1',
+                // 총 자산 관련
+                'tot_evlu_amt', 'frcr_evlu_tota', 'tot_aset_amt',
+                // 손익 관련
+                'tot_evlu_pfls_amt', 'ovrs_rlzt_pfls_amt', 'evlu_pfls_smtl_amt',
+                'tot_pftrt', 'evlu_pfls_rt',
+                // 기타
+                'frcr_buy_amt_smtl', 'ovrs_buy_amt_smtl', 'thdt_buy_amt_smtl'
               ];
               
-              let exchangeBalance = {};
+              const meaningfulFields = {};
               balanceFields.forEach(field => {
                 const value = parseFloat(summary[field] || 0);
-                if (value !== 0) {
-                  exchangeBalance[field] = value;
-                  console.log(`  💲 ${field}: $${value}`);
+                if (value !== 0 && !isNaN(value)) {
+                  meaningfulFields[field] = value;
+                  console.log(`  💵 ${field}: $${value.toLocaleString()}`);
                 }
               });
               
-              // 의미있는 잔고 데이터가 있으면 합산
-              const depositAmt = parseFloat(summary.frcr_buy_amt_smtl1 || summary.frcr_dncl_amt || summary.tot_aset_amt || 0);
-              const availableAmt = parseFloat(summary.ovrs_ord_psbl_amt || summary.frcr_buy_amt_smtl2 || summary.frcr_dncl_amt || 0);
-              const totalAmt = parseFloat(summary.tot_evlu_amt || summary.frcr_evlu_tota || summary.tot_evlu_pfls_amt || 0);
-              const profitAmt = parseFloat(summary.ovrs_rlzt_pfls_amt || summary.evlu_pfls_smtl_amt || 0);
-              const profitRate = parseFloat(summary.tot_pftrt || summary.evlu_pfls_rt || 0);
-              
-              if (depositAmt > 0 || availableAmt > 0 || totalAmt > 0) {
-                totalResponseData.totalDeposit = Math.max(totalResponseData.totalDeposit, depositAmt);
-                totalResponseData.availableAmount = Math.max(totalResponseData.availableAmount, availableAmt);
-                totalResponseData.totalAsset = Math.max(totalResponseData.totalAsset, totalAmt);
-                totalResponseData.profitLoss += profitAmt;
-                if (profitRate !== 0) totalResponseData.profitLossRate = profitRate;
+              // 🔥 의미있는 잔고 데이터 추출 및 합산
+              if (Object.keys(meaningfulFields).length > 0) {
+                console.log(`📊 ${apiCall.name}에서 의미있는 잔고 발견:`, Object.keys(meaningfulFields).length, '개 필드');
+                
+                // 다양한 필드에서 최적값 추출
+                const possibleDeposits = [
+                  meaningfulFields['frcr_buy_amt_smtl1'],
+                  meaningfulFields['frcr_dncl_amt'],
+                  meaningfulFields['frcr_pchs_amt1'],
+                  meaningfulFields['ovrs_ord_psbl_amt']
+                ].filter(v => v && v > 0);
+                
+                const possibleAvailable = [
+                  meaningfulFields['ovrs_ord_psbl_amt'],
+                  meaningfulFields['frcr_buy_amt_smtl2'],
+                  meaningfulFields['frcr_dncl_amt']
+                ].filter(v => v && v > 0);
+                
+                const possibleTotalAsset = [
+                  meaningfulFields['tot_evlu_amt'],
+                  meaningfulFields['frcr_evlu_tota'],
+                  meaningfulFields['tot_aset_amt']
+                ].filter(v => v && v > 0);
+                
+                const possibleProfit = [
+                  meaningfulFields['ovrs_rlzt_pfls_amt'],
+                  meaningfulFields['evlu_pfls_smtl_amt'],
+                  meaningfulFields['tot_evlu_pfls_amt']
+                ].filter(v => v && v !== 0);
+                
+                const possibleProfitRate = [
+                  meaningfulFields['tot_pftrt'],
+                  meaningfulFields['evlu_pfls_rt']
+                ].filter(v => v && v !== 0);
+                
+                // 최대값으로 설정 (가장 포괄적인 값)
+                if (possibleDeposits.length > 0) {
+                  totalResponseData.totalDeposit = Math.max(totalResponseData.totalDeposit, Math.max(...possibleDeposits));
+                }
+                if (possibleAvailable.length > 0) {
+                  totalResponseData.availableAmount = Math.max(totalResponseData.availableAmount, Math.max(...possibleAvailable));
+                }
+                if (possibleTotalAsset.length > 0) {
+                  totalResponseData.totalAsset = Math.max(totalResponseData.totalAsset, Math.max(...possibleTotalAsset));
+                }
+                if (possibleProfit.length > 0) {
+                  // 손익은 합산 (중복 제거를 위해 평균 사용)
+                  const avgProfit = possibleProfit.reduce((a, b) => a + b, 0) / possibleProfit.length;
+                  totalResponseData.profitLoss = avgProfit;
+                }
+                if (possibleProfitRate.length > 0) {
+                  totalResponseData.profitLossRate = possibleProfitRate[0]; // 첫 번째 값 사용
+                }
+                
                 hasAnyBalance = true;
                 
-                console.log(`✅ ${exchange.name}에서 잔고 발견:`, {
-                  예수금: depositAmt,
-                  주문가능: availableAmt,
-                  총자산: totalAmt
+                console.log(`✅ ${apiCall.name}에서 추출된 잔고:`, {
+                  예수금: possibleDeposits.length > 0 ? `$${Math.max(...possibleDeposits).toLocaleString()}` : '없음',
+                  주문가능: possibleAvailable.length > 0 ? `$${Math.max(...possibleAvailable).toLocaleString()}` : '없음',
+                  총자산: possibleTotalAsset.length > 0 ? `$${Math.max(...possibleTotalAsset).toLocaleString()}` : '없음'
                 });
               }
             }
 
+            // 🔥 output3도 확인 (일부 API에서 사용)
+            if (apiData.output3) {
+              console.log(`📊 ${apiCall.name} output3 데이터:`, apiData.output3);
+            }
+
             detailedResults.push({
-              exchange: exchange.name,
-              code: exchange.code,
-              currency: exchange.currency,
-              hasStocks: apiData.output1?.length > 0,
-              hasBalance: Object.keys(apiData.output2 || {}).some(key => parseFloat(apiData.output2[key]) !== 0)
+              api: apiCall.name,
+              endpoint: apiCall.endpoint,
+              params: apiCall.params,
+              success: true,
+              hasData: (apiData.output1?.length > 0) || (Object.keys(apiData.output2 || {}).length > 0),
+              dataTypes: {
+                output1: apiData.output1?.length || 0,
+                output2: !!apiData.output2,
+                output3: !!apiData.output3
+              }
             });
 
           } else {
-            console.log(`⚠️ ${exchange.name} 조회 실패:`, apiData?.msg1 || 'Unknown error');
+            console.log(`⚠️ ${apiCall.name} 조회 실패:`, apiData?.msg1 || 'Unknown error');
+            detailedResults.push({
+              api: apiCall.name,
+              success: false,
+              error: apiData?.msg1 || 'Unknown error'
+            });
           }
 
           // API 호출 간격 (Rate Limit 방지)
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 1초 대기
 
         } catch (error) {
-          console.error(`❌ ${exchange.name} 조회 오류:`, error.message);
-          continue; // 다음 거래소 계속 시도
+          console.error(`❌ ${apiCall.name} 조회 오류:`, error.message);
+          detailedResults.push({
+            api: apiCall.name,
+            success: false,
+            error: error.message
+          });
+          continue; // 다음 API 계속 시도
         }
       }
 
       console.log('\n📊 전체 조회 결과 요약:');
       console.log('💰 최종 합산된 잔고:', totalResponseData);
-      console.log('🔍 거래소별 결과:', detailedResults);
+      console.log('🔍 API별 결과:', detailedResults.map(r => `${r.api}: ${r.success ? '성공' : '실패'}`));
       console.log('📈 잔고 발견 여부:', hasAnyBalance);
 
+      // 🔥 추가 검증: 값들이 모두 0이면 다른 방식으로 재조회
+      if (!hasAnyBalance || (totalResponseData.totalDeposit === 0 && totalResponseData.availableAmount === 0 && totalResponseData.totalAsset === 0)) {
+        console.log('\n🔄 기본 조회에서 잔고가 0이므로 추가 방식으로 재조회 시도...');
+        
+        try {
+          // 🔥 다른 tr_id로 시도
+          const alternativeCall = {
+            endpoint: '/uapi/overseas-stock/v1/trading/inquire-balance',
+            params: {
+              CANO: accountNo,
+              ACNT_PRDT_CD: productCd,
+              OVRS_EXCG_CD: 'NASD',
+              TR_CRCY_CD: '',
+              CTX_AREA_FK200: '',
+              CTX_AREA_NK200: ''
+            },
+            headers: { 'tr_id': 'JTTT3012R' } // 혹시 다른 tr_id가 필요할 수 있음
+          };
+          
+          console.log('🔄 대체 방식으로 재조회...');
+          const altData = await makeKISRequest(alternativeCall.endpoint, alternativeCall.params, alternativeCall.headers);
+          
+          if (altData && altData.rt_cd === '0') {
+            console.log('📊 대체 조회 성공, 상세 응답 분석 중...');
+            console.log('🔍 전체 응답 구조:', JSON.stringify(altData, null, 2));
+            
+            // 응답의 모든 필드를 샅샅이 검토
+            Object.keys(altData).forEach(key => {
+              if (typeof altData[key] === 'object' && altData[key] !== null) {
+                console.log(`📋 ${key} 필드 내용:`, altData[key]);
+                
+                // 숫자 필드들 중에서 의미있는 값 찾기
+                if (Array.isArray(altData[key])) {
+                  altData[key].forEach((item, idx) => {
+                    console.log(`  [${idx}]:`, item);
+                  });
+                } else {
+                  Object.keys(altData[key]).forEach(subKey => {
+                    const value = parseFloat(altData[key][subKey]);
+                    if (!isNaN(value) && value !== 0) {
+                      console.log(`    ${subKey}: ${value}`);
+                    }
+                  });
+                }
+              }
+            });
+          }
+          
+        } catch (altError) {
+          console.error('❌ 대체 조회 실패:', altError.message);
+        }
+      }
+
       // 최종 응답
-      if (hasAnyBalance) {
+      if (hasAnyBalance && (totalResponseData.totalDeposit > 0 || totalResponseData.availableAmount > 0 || totalResponseData.totalAsset > 0)) {
         console.log('✅ 해외 계좌 잔고 조회 성공 (합산):', {
           totalDeposit: `$${totalResponseData.totalDeposit.toLocaleString()}`,
           availableAmount: `$${totalResponseData.availableAmount.toLocaleString()}`,
@@ -734,12 +904,13 @@ app.get('/api/trading/account/balance/global',
           success: true,
           data: totalResponseData,
           debug: {
-            checkedExchanges: detailedResults,
-            totalChecks: exchanges.length
+            checkedAPIs: detailedResults,
+            totalChecks: apiCalls.length,
+            foundBalance: hasAnyBalance
           }
         });
       } else {
-        console.log('💡 모든 거래소에서 잔고 없음 확인');
+        console.log('💡 모든 API에서 잔고 0 확인 - 실제로 USD 잔고가 없거나 API 이슈일 가능성');
         
         res.json({
           success: true,
@@ -750,10 +921,11 @@ app.get('/api/trading/account/balance/global',
             profitLoss: 0,
             profitLossRate: 0
           },
-          message: '모든 해외 거래소에서 잔고를 확인했으나 투자 내역이 없습니다.',
+          message: '모든 해외 거래소와 통화를 확인했으나 USD 투자 내역이 없습니다. 계좌에 USD가 실제로 있는지 KIS 앱에서 직접 확인해보세요.',
           debug: {
-            checkedExchanges: detailedResults,
-            totalChecks: exchanges.length
+            checkedAPIs: detailedResults,
+            totalChecks: apiCalls.length,
+            note: 'API 응답은 정상이지만 USD 잔고가 0으로 나타납니다. 실제 계좌 상태를 확인해주세요.'
           }
         });
       }
