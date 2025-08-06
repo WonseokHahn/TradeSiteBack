@@ -577,7 +577,7 @@ app.get('/api/trading/account/balance/global',
       };
 
       const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
-        'tr_id': 'JTTT3012R' // 실전투자용
+        'tr_id': 'TTTS3012R' // 실전투자용
       });
 
       // 응답 데이터 상세 로깅
