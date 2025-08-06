@@ -366,22 +366,28 @@ app.get('/api/trading/account/balance/domestic',
         });
       }
 
-      // 계좌 정보 검증 및 포맷팅
+      // 계좌 정보 검증 및 포맷팅 - 실전투자 계좌번호는 8자리 사용
       let accountNo = process.env.KIS_ACCOUNT_NO.replace(/[^0-9]/g, ''); // 숫자만 추출
       let productCd = process.env.KIS_ACCOUNT_PRODUCT_CD.padStart(2, '0'); // 2자리로 패딩
       
-      console.log('🔍 계좌 정보 검증:', {
+      // 실전투자 계좌번호는 앞 8자리만 사용 (10자리 전체가 아님!)
+      if (accountNo.length === 10) {
+        accountNo = accountNo.substring(0, 8); // 앞 8자리만 사용
+        console.log('✅ 10자리 계좌번호에서 앞 8자리 추출:', accountNo);
+      }
+      
+      console.log('🔍 계좌 정보 검증 (실전투자용):', {
         원본_계좌번호: process.env.KIS_ACCOUNT_NO,
-        정제된_계좌번호: accountNo,
+        추출된_8자리: accountNo,
         계좌번호_길이: accountNo.length,
         원본_상품코드: process.env.KIS_ACCOUNT_PRODUCT_CD,
         정제된_상품코드: productCd,
         상품코드_길이: productCd.length
       });
 
-      // 계좌번호 길이 검증 (보통 10자리)
-      if (accountNo.length !== 10) {
-        console.error('❌ 계좌번호 길이 오류:', accountNo.length, '자리 (10자리 필요)');
+      // 실전투자 계좌번호 길이 검증 (8자리)
+      if (accountNo.length !== 8) {
+        console.error('❌ 실전투자 계좌번호 길이 오류:', accountNo.length, '자리 (8자리 필요)');
         return res.json({
           success: true,
           data: {
@@ -391,28 +397,28 @@ app.get('/api/trading/account/balance/domestic',
             profitLoss: -800000,
             profitLossRate: -8.7
           },
-          message: `계좌번호 형식 오류 (${accountNo.length}자리, 10자리 필요) - 더미 데이터 반환`
+          message: `실전투자 계좌번호 형식 오류 (${accountNo.length}자리, 8자리 필요) - 더미 데이터 반환`
         });
       }
 
-      // KIS API 호출 - 파라미터 길이 최적화
+      // KIS API 호출 - 실전투자용 파라미터 (TTTC8434R)
       const apiParams = {
-        CANO: accountNo, // 10자리 숫자
+        CANO: accountNo, // 8자리 숫자 (실전투자)
         ACNT_PRDT_CD: productCd, // 2자리 (01, 02 등)
-        AFHR_FLPR_YN: 'N', // 1자리
-        OFL_YN: '', // 빈값 허용
-        INQR_DVSN: '02', // 2자리
-        UNPR_DVSN: '01', // 2자리  
-        FUND_STTL_ICLD_YN: 'N', // 1자리
-        FNCG_AMT_AUTO_RDPT_YN: 'N', // 1자리
-        PRCS_DVSN: '01', // 2자리
-        CTX_AREA_FK100: '', // 연속조회키 (빈값)
-        CTX_AREA_NK100: ''  // 연속조회키 (빈값)
+        AFHR_FLPR_YN: 'N', // 시간외단일가여부
+        OFL_YN: '', // 오프라인여부 (빈값)
+        INQR_DVSN: '02', // 조회구분 (01: 대출일별, 02: 종목별)
+        UNPR_DVSN: '01', // 단가구분 (01: 기본값)
+        FUND_STTL_ICLD_YN: 'N', // 펀드결제분포함여부
+        FNCG_AMT_AUTO_RDPT_YN: 'N', // 융자금액자동상환여부
+        PRCS_DVSN: '01', // 처리구분 (00: 전일매매포함, 01: 전일매매미포함)
+        CTX_AREA_FK100: '', // 연속조회키
+        CTX_AREA_NK100: ''  // 연속조회키
       };
 
-      console.log('📋 정제된 API 파라미터:', apiParams);
+      console.log('📋 실전투자 API 파라미터:', apiParams);
       console.log('🔍 각 파라미터 길이 검증:', {
-        CANO: `${apiParams.CANO} (${apiParams.CANO.length}자리)`,
+        CANO: `${apiParams.CANO} (${apiParams.CANO.length}자리) - 실전투자는 8자리`,
         ACNT_PRDT_CD: `${apiParams.ACNT_PRDT_CD} (${apiParams.ACNT_PRDT_CD.length}자리)`,
         INQR_DVSN: `${apiParams.INQR_DVSN} (${apiParams.INQR_DVSN.length}자리)`,
         UNPR_DVSN: `${apiParams.UNPR_DVSN} (${apiParams.UNPR_DVSN.length}자리)`,
@@ -420,7 +426,7 @@ app.get('/api/trading/account/balance/domestic',
       });
 
       const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-balance', apiParams, {
-        'tr_id': 'TTTC8434R'
+        'tr_id': 'TTTC8434R' // 실전투자용
       });
 
       // 응답 데이터 상세 로깅
