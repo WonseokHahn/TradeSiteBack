@@ -376,15 +376,6 @@ app.get('/api/trading/account/balance/domestic',
         console.log('✅ 10자리 계좌번호에서 앞 8자리 추출:', accountNo);
       }
       
-      // console.log('🔍 계좌 정보 검증 (실전투자용):', {
-      //   원본_계좌번호: process.env.KIS_ACCOUNT_NO,
-      //   추출된_8자리: accountNo,
-      //   계좌번호_길이: accountNo.length,
-      //   원본_상품코드: process.env.KIS_ACCOUNT_PRODUCT_CD,
-      //   정제된_상품코드: productCd,
-      //   상품코드_길이: productCd.length
-      // });
-
       // 실전투자 계좌번호 길이 검증 (8자리)
       if (accountNo.length !== 8) {
         console.error('❌ 실전투자 계좌번호 길이 오류:', accountNo.length, '자리 (8자리 필요)');
@@ -415,15 +406,6 @@ app.get('/api/trading/account/balance/domestic',
         CTX_AREA_FK100: '', // 연속조회키
         CTX_AREA_NK100: ''  // 연속조회키
       };
-
-      // console.log('📋 실전투자 API 파라미터:', apiParams);
-      // console.log('🔍 각 파라미터 길이 검증:', {
-      //   CANO: `${apiParams.CANO} (${apiParams.CANO.length}자리) - 실전투자는 8자리`,
-      //   ACNT_PRDT_CD: `${apiParams.ACNT_PRDT_CD} (${apiParams.ACNT_PRDT_CD.length}자리)`,
-      //   INQR_DVSN: `${apiParams.INQR_DVSN} (${apiParams.INQR_DVSN.length}자리)`,
-      //   UNPR_DVSN: `${apiParams.UNPR_DVSN} (${apiParams.UNPR_DVSN.length}자리)`,
-      //   PRCS_DVSN: `${apiParams.PRCS_DVSN} (${apiParams.PRCS_DVSN.length}자리)`
-      // });
 
       const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-balance', apiParams, {
         'tr_id': 'TTTC8434R' // 실전투자용
@@ -596,9 +578,39 @@ app.get('/api/trading/account/balance/global',
         'tr_id': 'JTTT3012R'
       });
 
-      if (apiData && apiData.output2) {
-        const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
+      // if (apiData && apiData.output2) {
+      //   const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
         
+      //   const responseData = {
+      //     totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
+      //     availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0),
+      //     totalAsset: parseFloat(totalBalance?.tot_evlu_pfls_amt || 0),
+      //     profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0),
+      //     profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0)
+      //   };
+
+      //   console.log('✅ 해외 계좌 잔고 조회 성공:', {
+      //     totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
+      //     availableAmount: `$${responseData.availableAmount.toLocaleString()}`
+      //   });
+
+      //   res.json({
+      //     success: true,
+      //     data: responseData
+      //   });
+      // } else {
+      //   throw new Error('해외 잔고 정보가 없습니다');
+      // }
+      if (apiData && apiData.output2) {
+        let totalBalance;
+      
+        // output2가 배열인지 확인
+        if (Array.isArray(apiData.output2)) {
+          totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
+        } else {
+          totalBalance = apiData.output2;  // 단일 객체일 경우 그대로 사용
+        }
+      
         const responseData = {
           totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
           availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0),
@@ -606,12 +618,12 @@ app.get('/api/trading/account/balance/global',
           profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0),
           profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0)
         };
-
+      
         console.log('✅ 해외 계좌 잔고 조회 성공:', {
           totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
           availableAmount: `$${responseData.availableAmount.toLocaleString()}`
         });
-
+      
         res.json({
           success: true,
           data: responseData
