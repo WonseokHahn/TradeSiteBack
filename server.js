@@ -562,6 +562,12 @@ app.get('/api/trading/account/balance/global',
       let accountNo = process.env.KIS_ACCOUNT_NO.replace(/[^0-9]/g, ''); // 숫자만 추출
       let productCd = process.env.KIS_ACCOUNT_PRODUCT_CD.padStart(2, '0'); // 2자리로 패딩
       
+      // 실전투자 계좌번호는 앞 8자리만 사용 (10자리 전체가 아님!)
+      if (accountNo.length === 10) {
+        accountNo = accountNo.substring(0, 8); // 앞 8자리만 사용
+        console.log('✅ 10자리 계좌번호에서 앞 8자리 추출:', accountNo);
+      }
+      
       // 실전투자 계좌번호 길이 검증 (8자리)
       if (accountNo.length !== 8) {
         console.error('❌ 실전투자 계좌번호 길이 오류:', accountNo.length, '자리 (8자리 필요)');
