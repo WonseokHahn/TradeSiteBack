@@ -376,6 +376,15 @@ app.get('/api/trading/account/balance/domestic',
         console.log('✅ 10자리 계좌번호에서 앞 8자리 추출:', accountNo);
       }
       
+      console.log('🔍 계좌 정보 검증 (실전투자용):', {
+        원본_계좌번호: process.env.KIS_ACCOUNT_NO,
+        추출된_8자리: accountNo,
+        계좌번호_길이: accountNo.length,
+        원본_상품코드: process.env.KIS_ACCOUNT_PRODUCT_CD,
+        정제된_상품코드: productCd,
+        상품코드_길이: productCd.length
+      });
+
       // 실전투자 계좌번호 길이 검증 (8자리)
       if (accountNo.length !== 8) {
         console.error('❌ 실전투자 계좌번호 길이 오류:', accountNo.length, '자리 (8자리 필요)');
@@ -406,6 +415,15 @@ app.get('/api/trading/account/balance/domestic',
         CTX_AREA_FK100: '', // 연속조회키
         CTX_AREA_NK100: ''  // 연속조회키
       };
+
+      console.log('📋 실전투자 API 파라미터:', apiParams);
+      console.log('🔍 각 파라미터 길이 검증:', {
+        CANO: `${apiParams.CANO} (${apiParams.CANO.length}자리) - 실전투자는 8자리`,
+        ACNT_PRDT_CD: `${apiParams.ACNT_PRDT_CD} (${apiParams.ACNT_PRDT_CD.length}자리)`,
+        INQR_DVSN: `${apiParams.INQR_DVSN} (${apiParams.INQR_DVSN.length}자리)`,
+        UNPR_DVSN: `${apiParams.UNPR_DVSN} (${apiParams.UNPR_DVSN.length}자리)`,
+        PRCS_DVSN: `${apiParams.PRCS_DVSN} (${apiParams.PRCS_DVSN.length}자리)`
+      });
 
       const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-balance', apiParams, {
         'tr_id': 'TTTC8434R' // 실전투자용
@@ -540,74 +558,64 @@ app.get('/api/trading/account/balance/global',
         });
       }
 
-      // 계좌 정보 검증 및 포맷팅 - 실전투자 계좌번호는 8자리 사용
-      let accountNo = process.env.KIS_ACCOUNT_NO.replace(/[^0-9]/g, ''); // 숫자만 추출
-      let productCd = process.env.KIS_ACCOUNT_PRODUCT_CD.padStart(2, '0'); // 2자리로 패딩
-      
-      // 실전투자 계좌번호는 앞 8자리만 사용 (10자리 전체가 아님!)
-      if (accountNo.length === 10) {
-        accountNo = accountNo.substring(0, 8); // 앞 8자리만 사용
-        console.log('✅ 10자리 계좌번호에서 앞 8자리 추출:', accountNo);
-      }
-      
-      // 실전투자 계좌번호 길이 검증 (8자리)
-      if (accountNo.length !== 8) {
-        console.error('❌ 실전투자 계좌번호 길이 오류:', accountNo.length, '자리 (8자리 필요)');
-        return res.json({
-          success: true,
-          data: {
-            totalDeposit: 10000000,
-            availableAmount: 8500000,
-            totalAsset: 9200000,
-            profitLoss: -800000,
-            profitLossRate: -8.7
-          },
-          message: `실전투자 계좌번호 형식 오류 (${accountNo.length}자리, 8자리 필요) - 더미 데이터 반환`
-        });
-      }
-
-
-      const apiParams = {
-        CANO: accountNo, // 8자리 숫자 (실전투자)
-        ACNT_PRDT_CD: productCd, // 2자리 (01, 02 등)
+      const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', {
+        CANO: process.env.KIS_ACCOUNT_NO,
+        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PRODUCT_CD,
         OVRS_EXCG_CD: 'NASD',
         TR_CRCY_CD: 'USD',
         CTX_AREA_FK200: '',
         CTX_AREA_NK200: ''
-      };
-
-      const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
-        'tr_id': 'JTTT3012R' // 실전투자용
+      }, {
+        'tr_id': 'JTTT3012R'
       });
 
-      // 응답 데이터 상세 로깅
-      console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
-      console.log('🔍 rt_cd:', apiData.rt_cd, 'msg_cd:', apiData.msg_cd, 'msg1:', apiData.msg1);
-      
-      // rt_cd가 0이 아닌 경우 오류 처리
       if (apiData && apiData.output2) {
-        const totalBalance = apiData.output2.find(item => item.crcy_cd === 'USD') || apiData.output2[0];
+        console.log('🧾 해외 잔고 응답 데이터:', apiData.output2);
+        
+        // output2는 객체 형태 (배열이 아님)
+        const balanceData = apiData.output2;
         
         const responseData = {
-          totalDeposit: parseFloat(totalBalance?.frcr_dncl_amt_2 || 0),
-          availableAmount: parseFloat(totalBalance?.ovrs_ord_psbl_amt || 0),
-          totalAsset: parseFloat(totalBalance?.tot_evlu_pfls_amt || 0),
-          profitLoss: parseFloat(totalBalance?.evlu_pfls_smtl_amt || 0),
-          profitLossRate: parseFloat(totalBalance?.tot_evlu_pfls_rt || 0)
+          totalDeposit: parseFloat(balanceData.frcr_buy_amt_smtl1) || 0, // 외화매수금액합계1
+          availableAmount: parseFloat(balanceData.frcr_buy_amt_smtl2) || 0, // 외화매수금액합계2
+          totalAsset: parseFloat(balanceData.tot_evlu_pfls_amt) || 0, // 총평가손익금액
+          profitLoss: parseFloat(balanceData.ovrs_rlzt_pfls_amt) || 0, // 해외실현손익금액
+          profitLossRate: parseFloat(balanceData.tot_pftrt) || 0 // 총수익률
         };
 
-        console.log('✅ 해외 계좌 잔고 조회 성공:', {
-          totalDeposit: `$${responseData.totalDeposit.toLocaleString()}`,
-          availableAmount: `$${responseData.availableAmount.toLocaleString()}`
-        });
+        // 해외 주식 투자가 없는 경우
+        if (responseData.totalDeposit === 0 && responseData.totalAsset === 0) {
+          console.log('💡 해외 주식 투자 내역이 없습니다 (정상)');
+          
+          res.json({
+            success: true,
+            data: {
+              totalDeposit: 0,
+              availableAmount: 0,
+              totalAsset: 0,
+              profitLoss: 0,
+              profitLossRate: 0
+            },
+            message: '해외 주식 투자 내역이 없습니다. 해외 주식에 투자하면 잔고가 표시됩니다.'
+          });
+        } else {
+          console.log('✅ 해외 계좌 잔고 조회 성공:', {
+            totalDeposit: `${responseData.totalDeposit.toLocaleString()}`,
+            availableAmount: `${responseData.availableAmount.toLocaleString()}`,
+            totalAsset: `${responseData.totalAsset.toLocaleString()}`
+          });
 
-        res.json({
-          success: true,
-          data: responseData
-        });
+          res.json({
+            success: true,
+            data: responseData
+          });
+        }
       } else {
-        throw new Error('해외 잔고 정보가 없습니다');
+        // output2가 없는 경우
+        console.log('❌ output2 필드가 없음');
+        throw new Error('해외 잔고 정보 응답 형식이 올바르지 않습니다');
       }
+
     } catch (error) {
       console.error('❌ 해외 계좌 잔고 조회 오류:', error.message);
       
@@ -888,6 +896,8 @@ app.get('/api/kis/token-status',
 );
 
 console.log('✅ 개선된 KIS API 토큰 관리 시스템 적용 완료');
+
+
 console.log('🔗 라우터를 설정합니다...');
 
 // API 요청 로깅 미들웨어
