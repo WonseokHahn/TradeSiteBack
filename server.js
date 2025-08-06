@@ -598,7 +598,7 @@ app.get('/api/trading/account/balance/global',
       console.log('📋 API 파라미터:', apiParams);
       console.log('📋 헤더:', { tr_id: 'TTTS3012R' });
 
-      const apiData = await makeKISRequest('/uapi/overseas-stock/v1/trading/inquire-balance', apiParams, {
+      const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-psbl-order', apiParams, {
         'tr_id': 'TTTS3012R'
       });
 
