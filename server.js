@@ -378,29 +378,78 @@ app.get('/api/trading/account/balance/domestic',
         'tr_id': 'TTTC8434R'
       });
 
-      // 응답 데이터 파싱
-      if (apiData && apiData.output2 && apiData.output2[0]) {
-        const balanceData = apiData.output2[0];
+      // 응답 데이터 상세 로깅
+      console.log('📋 KIS API 응답 전체 구조:', JSON.stringify(apiData, null, 2));
+      console.log('🔍 rt_cd:', apiData.rt_cd, 'msg_cd:', apiData.msg_cd, 'msg1:', apiData.msg1);
+      
+      // rt_cd가 0이 아닌 경우 오류 처리
+      if (apiData.rt_cd !== '0') {
+        console.error('❌ KIS API 오류 응답:', {
+          rt_cd: apiData.rt_cd,
+          msg_cd: apiData.msg_cd,
+          msg1: apiData.msg1
+        });
         
-        const responseData = {
-          totalDeposit: parseInt(balanceData.dnca_tot_amt) || 0,
-          availableAmount: parseInt(balanceData.nxdy_excc_amt) || 0,
-          totalAsset: parseInt(balanceData.tot_evlu_amt) || 0,
-          profitLoss: parseInt(balanceData.evlu_pfls_smtl_amt) || 0,
-          profitLossRate: parseFloat(balanceData.tot_evlu_pfls_rt) || 0
-        };
+        // 특정 오류 코드에 대한 메시지
+        let errorMessage = '계좌 정보 조회 실패';
+        if (apiData.msg1) {
+          errorMessage = apiData.msg1;
+        } else if (apiData.rt_cd === '2') {
+          errorMessage = '잔고 조회 권한이 없거나 계좌 정보가 올바르지 않습니다';
+        }
+        
+        throw new Error(errorMessage);
+      }
 
-        console.log('✅ 국내 계좌 잔고 조회 성공:', {
-          totalDeposit: responseData.totalDeposit.toLocaleString(),
-          availableAmount: responseData.availableAmount.toLocaleString()
-        });
+      // 응답 데이터 파싱
+      if (apiData && apiData.output2) {
+        console.log('📊 output2 데이터 확인:', apiData.output2);
+        
+        if (apiData.output2.length > 0) {
+          const balanceData = apiData.output2[0];
+          console.log('💼 잔고 원본 데이터:', balanceData);
+          
+          const responseData = {
+            totalDeposit: parseInt(balanceData.dnca_tot_amt) || 0,
+            availableAmount: parseInt(balanceData.nxdy_excc_amt) || 0,
+            totalAsset: parseInt(balanceData.tot_evlu_amt) || 0,
+            profitLoss: parseInt(balanceData.evlu_pfls_smtl_amt) || 0,
+            profitLossRate: parseFloat(balanceData.tot_evlu_pfls_rt) || 0
+          };
 
-        res.json({
-          success: true,
-          data: responseData
-        });
+          console.log('✅ 국내 계좌 잔고 조회 성공:', {
+            totalDeposit: responseData.totalDeposit.toLocaleString(),
+            availableAmount: responseData.availableAmount.toLocaleString(),
+            totalAsset: responseData.totalAsset.toLocaleString()
+          });
+
+          res.json({
+            success: true,
+            data: responseData
+          });
+        } else {
+          // output2는 있지만 비어있는 경우
+          console.log('⚠️ output2가 비어있음 - 모의투자 계좌일 가능성');
+          
+          // 모의투자 또는 신규 계좌의 경우 0원으로 표시
+          const emptyAccountData = {
+            totalDeposit: 0,
+            availableAmount: 0,
+            totalAsset: 0,
+            profitLoss: 0,
+            profitLossRate: 0
+          };
+          
+          res.json({
+            success: true,
+            data: emptyAccountData,
+            message: '계좌에 잔고가 없거나 모의투자 계좌입니다.'
+          });
+        }
       } else {
-        throw new Error('잔고 정보가 없습니다');
+        // output2 자체가 없는 경우
+        console.log('❌ output2 필드가 없음');
+        throw new Error('잔고 정보 응답 형식이 올바르지 않습니다');
       }
 
     } catch (error) {
@@ -773,7 +822,6 @@ app.get('/api/kis/token-status',
 );
 
 console.log('✅ 개선된 KIS API 토큰 관리 시스템 적용 완료');
-
 console.log('🔗 라우터를 설정합니다...');
 
 // API 요청 로깅 미들웨어
