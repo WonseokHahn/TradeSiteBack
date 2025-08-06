@@ -277,13 +277,18 @@ async function makeKISRequest(endpoint, params = {}, headers = {}, retryCount = 
     const response = await axios.get(`${KIS_BASE_URL}${endpoint}`, config);
     
     console.log(`✅ KIS API 응답 성공: ${endpoint} (상태코드: ${response.status})`);
-    console.log('📊 응답 데이터:', response.data.rt_cd ? `rt_cd: ${response.data.rt_cd}` : '데이터 확인 필요');
+    console.log('📊 응답 rt_cd:', response.data.rt_cd, 'msg1:', response.data.msg1);
     
-    // 응답 성공 확인
+    // rt_cd 확인 - '0'이 성공, 나머지는 오류
+    if (response.data.rt_cd && response.data.rt_cd !== '0') {
+      throw new Error(`KIS API 오류 [${response.data.rt_cd}]: ${response.data.msg1 || response.data.msg || 'Unknown error'}`);
+    }
+    
+    // 응답 성공 확인 (rt_cd가 없는 경우도 있음)
     if (response.data.rt_cd === '0' || response.status === 200) {
       return response.data;
     } else {
-      throw new Error(`KIS API 오류 [${response.data.rt_cd}]: ${response.data.msg1 || response.data.msg || 'Unknown error'}`);
+      throw new Error(`KIS API 오류: ${response.data.msg1 || response.data.msg || 'Unknown error'}`);
     }
 
   } catch (error) {
@@ -330,7 +335,7 @@ app.get('/api/trading/account/balance/domestic',
     try {
       console.log('💰 국내 계좌 잔고 조회 요청:', req.user.id);
       
-      // 환경변수 확인
+      // 환경변수 확인 및 검증
       if (!process.env.KIS_APP_KEY || !process.env.KIS_APP_SECRET) {
         console.log('⚠️ KIS API 설정이 없어서 더미 데이터 반환');
         return res.json({
@@ -361,20 +366,60 @@ app.get('/api/trading/account/balance/domestic',
         });
       }
 
-      // KIS API 호출
-      const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-balance', {
-        CANO: process.env.KIS_ACCOUNT_NO,
-        ACNT_PRDT_CD: process.env.KIS_ACCOUNT_PRODUCT_CD,
-        AFHR_FLPR_YN: 'N',
-        OFL_YN: '',
-        INQR_DVSN: '02',
-        UNPR_DVSN: '01',
-        FUND_STTL_ICLD_YN: 'N',
-        FNCG_AMT_AUTO_RDPT_YN: 'N',
-        PRCS_DVSN: '01',
-        CTX_AREA_FK100: '',
-        CTX_AREA_NK100: ''
-      }, {
+      // 계좌 정보 검증 및 포맷팅
+      let accountNo = process.env.KIS_ACCOUNT_NO.replace(/[^0-9]/g, ''); // 숫자만 추출
+      let productCd = process.env.KIS_ACCOUNT_PRODUCT_CD.padStart(2, '0'); // 2자리로 패딩
+      
+      console.log('🔍 계좌 정보 검증:', {
+        원본_계좌번호: process.env.KIS_ACCOUNT_NO,
+        정제된_계좌번호: accountNo,
+        계좌번호_길이: accountNo.length,
+        원본_상품코드: process.env.KIS_ACCOUNT_PRODUCT_CD,
+        정제된_상품코드: productCd,
+        상품코드_길이: productCd.length
+      });
+
+      // 계좌번호 길이 검증 (보통 10자리)
+      if (accountNo.length !== 10) {
+        console.error('❌ 계좌번호 길이 오류:', accountNo.length, '자리 (10자리 필요)');
+        return res.json({
+          success: true,
+          data: {
+            totalDeposit: 10000000,
+            availableAmount: 8500000,
+            totalAsset: 9200000,
+            profitLoss: -800000,
+            profitLossRate: -8.7
+          },
+          message: `계좌번호 형식 오류 (${accountNo.length}자리, 10자리 필요) - 더미 데이터 반환`
+        });
+      }
+
+      // KIS API 호출 - 파라미터 길이 최적화
+      const apiParams = {
+        CANO: accountNo, // 10자리 숫자
+        ACNT_PRDT_CD: productCd, // 2자리 (01, 02 등)
+        AFHR_FLPR_YN: 'N', // 1자리
+        OFL_YN: '', // 빈값 허용
+        INQR_DVSN: '02', // 2자리
+        UNPR_DVSN: '01', // 2자리  
+        FUND_STTL_ICLD_YN: 'N', // 1자리
+        FNCG_AMT_AUTO_RDPT_YN: 'N', // 1자리
+        PRCS_DVSN: '01', // 2자리
+        CTX_AREA_FK100: '', // 연속조회키 (빈값)
+        CTX_AREA_NK100: ''  // 연속조회키 (빈값)
+      };
+
+      console.log('📋 정제된 API 파라미터:', apiParams);
+      console.log('🔍 각 파라미터 길이 검증:', {
+        CANO: `${apiParams.CANO} (${apiParams.CANO.length}자리)`,
+        ACNT_PRDT_CD: `${apiParams.ACNT_PRDT_CD} (${apiParams.ACNT_PRDT_CD.length}자리)`,
+        INQR_DVSN: `${apiParams.INQR_DVSN} (${apiParams.INQR_DVSN.length}자리)`,
+        UNPR_DVSN: `${apiParams.UNPR_DVSN} (${apiParams.UNPR_DVSN.length}자리)`,
+        PRCS_DVSN: `${apiParams.PRCS_DVSN} (${apiParams.PRCS_DVSN.length}자리)`
+      });
+
+      const apiData = await makeKISRequest('/uapi/domestic-stock/v1/trading/inquire-balance', apiParams, {
         'tr_id': 'TTTC8434R'
       });
 
