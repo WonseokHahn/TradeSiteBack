@@ -1600,16 +1600,16 @@ app.post('/api/trading/strategies',
         }
       }
 
-      // 총 투자 비율 검증
-      const totalAllocation = stocks.reduce((sum, stock) => sum + (parseInt(stock.allocation) || 0), 0);
-      if (totalAllocation !== 100) {
-        return res.status(400).json({
-          success: false,
-          message: `총 투자 비율이 100%가 되어야 합니다. (현재: ${totalAllocation}%)`
-        });
-      }
+      //  // 총 투자 비율 검증
+      // const totalAllocation = stocks.reduce((sum, stock) => sum + (parseInt(stock.allocation) || 0), 0);
+      // if (totalAllocation !== 100) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: `총 투자 비율이 100%가 되어야 합니다. (현재: ${totalAllocation}%)`
+      //   });
+      // }
 
-      console.log('✅ 입력값 검증 완료');
+      // console.log('✅ 입력값 검증 완료');
 
       // 데이터베이스 연결 확인
       let query;
