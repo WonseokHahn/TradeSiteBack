@@ -1479,33 +1479,73 @@ app.get('/api/trading/strategies', async (req, res) => {
   }
 });
 
-// server.js의 기존 POST /api/trading/strategies 라우트를 이것으로 교체하세요
-// server.js의 기존 POST /api/trading/strategies 라우트를 이것으로 교체하세요
-// (라인 626-665 근처에 있는 기존 코드를 찾아서 교체)
+
+
+// 전략 수정 (PUT)
+app.put('/api/trading/strategies/:id', async (req, res) => {
+  try {// server.js의 POST /api/trading/strategies 라우트를 이것으로 교체하세요
 
 app.post('/api/trading/strategies', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
+      console.log('🔍 전략 생성 요청 받음');
+      console.log('👤 사용자 ID:', req.user.id);
+      console.log('📦 요청 body 전체:', JSON.stringify(req.body, null, 2));
+      
       const { marketType, region, stocks } = req.body;
-      console.log('✍️ 새 전략 생성 요청:', { 
-        userId: req.user.id,
+      console.log('📊 추출된 데이터:', { 
         marketType, 
         region, 
-        stocks: stocks?.length 
+        stocks,
+        stocksType: typeof stocks,
+        stocksLength: stocks?.length 
       });
       
-      // 입력 값 검증
-      if (!marketType || !region || !stocks || stocks.length === 0) {
-        console.log('❌ 필수 정보 누락:', { marketType, region, stocksLength: stocks?.length });
+      // 입력 값 검증 - 더 자세한 로그
+      if (!marketType) {
+        console.log('❌ marketType 누락');
         return res.status(400).json({
           success: false,
-          message: '필수 정보가 누락되었습니다. (marketType, region, stocks)'
+          message: 'marketType이 필요합니다.'
+        });
+      }
+      
+      if (!region) {
+        console.log('❌ region 누락');
+        return res.status(400).json({
+          success: false,
+          message: 'region이 필요합니다.'
+        });
+      }
+      
+      if (!stocks) {
+        console.log('❌ stocks 누락');
+        return res.status(400).json({
+          success: false,
+          message: 'stocks 배열이 필요합니다.'
+        });
+      }
+      
+      if (!Array.isArray(stocks)) {
+        console.log('❌ stocks가 배열이 아님:', typeof stocks);
+        return res.status(400).json({
+          success: false,
+          message: 'stocks는 배열이어야 합니다.'
+        });
+      }
+      
+      if (stocks.length === 0) {
+        console.log('❌ stocks 배열이 비어있음');
+        return res.status(400).json({
+          success: false,
+          message: '최소 1개 이상의 종목이 필요합니다.'
         });
       }
 
       // marketType 검증
       if (!['bull', 'bear'].includes(marketType)) {
+        console.log('❌ 잘못된 marketType:', marketType);
         return res.status(400).json({
           success: false,
           message: 'marketType은 bull 또는 bear이어야 합니다.'
@@ -1514,33 +1554,48 @@ app.post('/api/trading/strategies',
 
       // region 검증
       if (!['domestic', 'global'].includes(region)) {
+        console.log('❌ 잘못된 region:', region);
         return res.status(400).json({
           success: false,
           message: 'region은 domestic 또는 global이어야 합니다.'
         });
       }
 
-      // stocks 배열 검증
+      // stocks 배열 검증 - 각 항목 상세 확인
       for (let i = 0; i < stocks.length; i++) {
         const stock = stocks[i];
-        if (!stock.code || !stock.allocation || stock.allocation <= 0) {
+        console.log(`📊 Stock ${i + 1} 검증:`, stock);
+        
+        if (!stock.code) {
+          console.log(`❌ Stock ${i + 1} 코드 누락`);
           return res.status(400).json({
             success: false,
-            message: `종목 ${i + 1}의 코드 또는 투자비율이 올바르지 않습니다.`
+            message: `종목 ${i + 1}의 코드가 누락되었습니다.`
+          });
+        }
+        
+        if (!stock.allocation || stock.allocation <= 0) {
+          console.log(`❌ Stock ${i + 1} 투자비율 오류:`, stock.allocation);
+          return res.status(400).json({
+            success: false,
+            message: `종목 ${i + 1}의 투자비율이 올바르지 않습니다.`
           });
         }
       }
 
       // 총 투자 비율 검증
       const totalAllocation = stocks.reduce((sum, stock) => sum + (parseInt(stock.allocation) || 0), 0);
+      console.log('🔢 계산된 총 투자 비율:', totalAllocation);
+      
       if (totalAllocation !== 100) {
+        console.log('❌ 총 투자 비율 오류:', totalAllocation);
         return res.status(400).json({
           success: false,
           message: `총 투자 비율이 100%가 되어야 합니다. (현재: ${totalAllocation}%)`
         });
       }
 
-      console.log('✅ 입력값 검증 완료');
+      console.log('✅ 모든 입력값 검증 완료');
 
       // 데이터베이스 연결 확인
       let query;
@@ -1550,6 +1605,7 @@ app.post('/api/trading/strategies',
         if (!query) {
           throw new Error('Database query function not available');
         }
+        console.log('✅ 데이터베이스 연결 확인 완료');
       } catch (dbError) {
         console.error('❌ 데이터베이스 모듈 로드 실패:', dbError.message);
         return res.status(500).json({
@@ -1560,26 +1616,29 @@ app.post('/api/trading/strategies',
 
       try {
         // 기존 활성 전략 비활성화
+        console.log('🔄 기존 활성 전략 비활성화 중...');
         await query(
           'UPDATE trading_strategies SET is_active = false WHERE user_id = $1',
           [req.user.id]
         );
         console.log('✅ 기존 활성 전략 비활성화 완료');
 
-        // 전략 이름 생성
+        // 전략 정보 생성
         const strategyName = getStrategyName(marketType, region);
         const expectedReturn = calculateExpectedReturn(marketType, region, stocks);
         const riskLevel = calculateRiskLevel(marketType, stocks);
         const description = getStrategyDescription(marketType, region);
 
-        console.log('📊 전략 정보:', {
+        console.log('📊 생성될 전략 정보:', {
           strategyName,
           expectedReturn,
           riskLevel,
-          description
+          description,
+          userId: req.user.id
         });
 
         // 새 전략 생성
+        console.log('💾 데이터베이스에 전략 저장 중...');
         const result = await query(
           `INSERT INTO trading_strategies 
            (user_id, strategy_name, market_type, region, stocks, is_active, expected_return, risk_level, description)
@@ -1599,7 +1658,10 @@ app.post('/api/trading/strategies',
         );
 
         const newStrategy = result.rows[0];
-        console.log('✅ 새 전략 생성 완료:', newStrategy.id);
+        console.log('✅ 새 전략 생성 완료:', {
+          id: newStrategy.id,
+          name: newStrategy.strategy_name
+        });
 
         // stocks JSON 파싱해서 반환
         if (typeof newStrategy.stocks === 'string') {
@@ -1625,6 +1687,7 @@ app.post('/api/trading/strategies',
 
     } catch (error) {
       console.error('❌ 전략 생성 전체 오류:', error);
+      console.error('Error stack:', error.stack);
       res.status(500).json({
         success: false,
         message: '전략 생성 중 오류가 발생했습니다.',
@@ -1633,10 +1696,6 @@ app.post('/api/trading/strategies',
     }
   }
 );
-
-// 전략 수정 (PUT)
-app.put('/api/trading/strategies/:id', async (req, res) => {
-  try {
     const { id } = req.params;
     console.log(`📝 전략 수정 요청: ID ${id}`, req.body);
 
