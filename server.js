@@ -1595,67 +1595,6 @@ app.post('/api/trading/strategies',
   }
 );
 
-// 3. 자동매매 시작 (POST)
-app.post('/api/trading/start', 
-  passport.authenticate('jwt', { session: false }),
-  async (req, res) => {
-    try {
-      const { strategyId } = req.body;
-      console.log('🚀 자동매매 시작 요청:', { strategyId, userId: req.user.id });
-      
-      if (!strategyId) {
-        return res.status(400).json({
-          success: false,
-          message: '전략 ID가 필요합니다.'
-        });
-      }
-      
-      // 모의 자동매매 시작
-      console.log('✅ 모의 자동매매 시작 완료');
-      
-      res.json({
-        success: true,
-        message: '자동매매가 시작되었습니다.',
-        data: { strategyId, isActive: true }
-      });
-      
-    } catch (error) {
-      console.error('❌ 자동매매 시작 오류:', error);
-      res.status(500).json({
-        success: false,
-        message: '자동매매 시작 중 오류가 발생했습니다.'
-      });
-    }
-  }
-);
-
-// 4. 자동매매 중단 (POST)
-app.post('/api/trading/stop', 
-  passport.authenticate('jwt', { session: false }),
-  async (req, res) => {
-    try {
-      console.log('⏹️ 자동매매 중단 요청:', req.user.id);
-      
-      // 모의 자동매매 중단
-      console.log('✅ 모의 자동매매 중단 완료');
-      
-      res.json({
-        success: true,
-        message: '자동매매가 중단되었습니다.',
-        data: { isActive: false }
-      });
-      
-    } catch (error) {
-      console.error('❌ 자동매매 중단 오류:', error);
-      res.status(500).json({
-        success: false,
-        message: '자동매매 중단 중 오류가 발생했습니다.'
-      });
-    }
-  }
-);
-
-
 // 전략 수정 (PUT)
 app.put('/api/trading/strategies/:id', async (req, res) => {
   try {
@@ -1967,61 +1906,69 @@ app.get('/api/trading/history',
   }
 );
 
-
-// 기존 trading/status 라우트도 안전하게 수정
-// 기존 코드를 찾아서 교체하세요 (라인 313-322 정도)
-// Trading 상태 조회도 안전하게 수정
+// Trading 상태 조회 - 수정된 버전
 app.get('/api/trading/status', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
       console.log('📊 트레이딩 상태 조회:', req.user.id);
       
-      let strategy = null;
+      // 🔥 메모리에서 사용자 상태 확인
+      const userStatus = userTradingStatus.get(req.user.id);
       
-      try {
-        // 데이터베이스 연결 시도 - 안전한 방식
-        let query;
-        try {
-          const dbModule = require('./src/config/database');
-          query = dbModule.query;
-        } catch (dbImportError) {
-          console.error('❌ 데이터베이스 모듈 로드 실패:', dbImportError.message);
-          throw new Error('Database not available');
-        }
+      if (userStatus) {
+        console.log('✅ 메모리에서 활성 상태 발견:', userStatus);
         
-        const result = await query(
-          `SELECT * FROM trading_strategies 
-           WHERE user_id = $1 AND is_active = true
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [req.user.id]
-        );
-
-        if (result && result.rows && result.rows.length > 0) {
-          strategy = result.rows[0];
-          
-          // stocks 필드가 JSON 문자열인 경우 파싱
-          if (strategy.stocks && typeof strategy.stocks === 'string') {
-            try {
-              strategy.stocks = JSON.parse(strategy.stocks);
-            } catch (parseError) {
-              console.error('JSON 파싱 오류:', parseError);
-              strategy.stocks = [];
-            }
+        res.json({
+          success: true,
+          data: {
+            isActive: true,
+            strategy: userStatus.strategy,
+            startedAt: userStatus.startedAt
           }
-        }
-      } catch (dbError) {
-        console.error('❌ 전략 상태 DB 조회 오류:', dbError.message);
-      }
+        });
+      } else {
+        console.log('ℹ️ 메모리에 활성 상태 없음, DB 확인 시도...');
+        
+        // 메모리에 없으면 DB에서 확인 (백업)
+        let strategy = null;
+        try {
+          const { query } = require('./src/config/database');
+          
+          const result = await query(
+            `SELECT * FROM trading_strategies 
+             WHERE user_id = $1 AND is_active = true
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            [req.user.id]
+          );
 
-      res.json({
-        success: true,
-        data: {
-          isActive: !!strategy,
-          strategy: strategy
+          if (result && result.rows && result.rows.length > 0) {
+            strategy = result.rows[0];
+            
+            if (strategy.stocks && typeof strategy.stocks === 'string') {
+              try {
+                strategy.stocks = JSON.parse(strategy.stocks);
+              } catch (parseError) {
+                console.error('JSON 파싱 오류:', parseError);
+                strategy.stocks = [];
+              }
+            }
+            
+            console.log('📊 DB에서 활성 전략 발견:', strategy.strategy_name);
+          }
+        } catch (dbError) {
+          console.error('❌ DB 조회 오류:', dbError.message);
         }
-      });
+
+        res.json({
+          success: true,
+          data: {
+            isActive: !!strategy,
+            strategy: strategy
+          }
+        });
+      }
       
     } catch (error) {
       console.error('❌ 트레이딩 상태 조회 오류:', error);
@@ -2036,18 +1983,16 @@ app.get('/api/trading/status',
   }
 );
 
-// server.js의 기존 POST /api/trading/strategies 라우트 다음에 이 코드들을 추가하세요
+// 🔥 메모리에서 사용자별 자동매매 상태 관리
+const userTradingStatus = new Map(); // userId -> { isActive, strategy, startedAt }
 
-// 자동매매 시작 라우트 (추가 필요)
+// 자동매매 시작 라우트 - 수정된 버전
 app.post('/api/trading/start', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
       const { strategyId } = req.body;
-      console.log('🚀 자동매매 시작 요청:', { 
-        strategyId, 
-        userId: req.user.id 
-      });
+      console.log('🚀 자동매매 시작 요청:', { strategyId, userId: req.user.id });
       
       if (!strategyId) {
         return res.status(400).json({
@@ -2055,170 +2000,96 @@ app.post('/api/trading/start',
           message: '전략 ID가 필요합니다.'
         });
       }
-
-      // 데이터베이스 연결 확인
-      let query;
-      try {
-        const dbModule = require('./src/config/database');
-        query = dbModule.query;
-      } catch (dbError) {
-        console.error('❌ 데이터베이스 모듈 로드 실패:', dbError.message);
-        return res.status(500).json({
-          success: false,
-          message: '데이터베이스 연결 오류가 발생했습니다.'
-        });
-      }
-
-      // 전략 존재 확인
-      const strategyResult = await query(
-        `SELECT * FROM trading_strategies 
-         WHERE id = $1 AND user_id = $2`,
-        [strategyId, req.user.id]
-      );
-
-      if (strategyResult.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: '전략을 찾을 수 없습니다.'
-        });
-      }
-
-      const strategy = strategyResult.rows[0];
       
-      // stocks JSON 파싱
-      if (typeof strategy.stocks === 'string') {
-        try {
-          strategy.stocks = JSON.parse(strategy.stocks);
-        } catch (parseError) {
-          console.error('❌ stocks JSON 파싱 실패:', parseError);
-          strategy.stocks = [];
-        }
-      }
-
-      console.log('📊 전략 정보:', {
-        id: strategy.id,
-        name: strategy.strategy_name,
-        stocksCount: strategy.stocks.length
-      });
-
-      // 전략 활성화
-      await query(
-        `UPDATE trading_strategies 
-         SET is_active = true, start_date = CURRENT_TIMESTAMP 
-         WHERE id = $1`,
-        [strategyId]
-      );
+      // 🔥 메모리에서 사용자 상태 업데이트
+      let strategy = null;
       
-      console.log('✅ 전략 활성화 완료');
-
-      // 간단한 모의 주문 생성 (실제 서비스에서는 실제 주문)
+      // 데이터베이스에서 전략 정보 가져오기 시도
       try {
-        for (const stock of strategy.stocks) {
-          // 모의 주문 데이터 생성
-          const mockPrice = strategy.region === 'domestic' ? 
-            Math.floor(Math.random() * 100000) + 50000 : 
-            Math.floor(Math.random() * 500) + 100;
-          
-          const investmentAmount = 1000000 * (stock.allocation / 100); // 100만원 기준
-          const quantity = Math.floor(investmentAmount / mockPrice);
-          
-          if (quantity > 0) {
-            await query(
-              `INSERT INTO trading_orders 
-               (user_id, strategy_id, stock_code, stock_name, region, order_type, quantity, order_price, executed_price, total_amount, status, executed_at)
-               VALUES ($1, $2, $3, $4, $5, 'BUY', $6, $7, $8, $9, 'FILLED', CURRENT_TIMESTAMP)`,
-              [
-                req.user.id,
-                strategy.id,
-                stock.code,
-                stock.name || stock.code,
-                strategy.region,
-                quantity,
-                mockPrice,
-                mockPrice,
-                quantity * mockPrice
-              ]
-            );
-            
-            console.log(`✅ 모의 주문 생성: ${stock.code} ${quantity}주`);
+        const { query } = require('./src/config/database');
+        const result = await query(
+          `SELECT * FROM trading_strategies WHERE id = $1 AND user_id = $2`,
+          [strategyId, req.user.id]
+        );
+        
+        if (result.rows.length > 0) {
+          strategy = result.rows[0];
+          if (typeof strategy.stocks === 'string') {
+            strategy.stocks = JSON.parse(strategy.stocks);
           }
         }
-      } catch (orderError) {
-        console.error('❌ 모의 주문 생성 실패:', orderError.message);
+      } catch (dbError) {
+        console.log('⚠️ DB에서 전략 조회 실패, 모의 전략 생성');
+        strategy = {
+          id: strategyId,
+          user_id: req.user.id,
+          strategy_name: '모의 전략',
+          market_type: 'bull',
+          region: 'global',
+          stocks: [],
+          is_active: true
+        };
       }
-
+      
+      // 🔥 사용자 상태를 메모리에 저장
+      userTradingStatus.set(req.user.id, {
+        isActive: true,
+        strategy: strategy,
+        startedAt: new Date().toISOString()
+      });
+      
+      console.log('✅ 사용자 자동매매 상태 업데이트:', req.user.id, '-> 활성화');
+      console.log('📊 현재 활성 사용자 수:', userTradingStatus.size);
+      
       res.json({
         success: true,
         message: '자동매매가 시작되었습니다.',
-        data: {
-          strategyId: strategy.id,
-          strategyName: strategy.strategy_name,
-          isActive: true
+        data: { 
+          strategyId, 
+          isActive: true,
+          strategy: strategy
         }
       });
-
+      
     } catch (error) {
       console.error('❌ 자동매매 시작 오류:', error);
       res.status(500).json({
         success: false,
-        message: '자동매매 시작 중 오류가 발생했습니다.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: '자동매매 시작 중 오류가 발생했습니다.'
       });
     }
   }
 );
 
-// 자동매매 중단 라우트 (추가 필요)
+// 자동매매 중단 라우트 - 수정된 버전
 app.post('/api/trading/stop', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
       console.log('⏹️ 자동매매 중단 요청:', req.user.id);
       
-      // 데이터베이스 연결 확인
-      let query;
-      try {
-        const dbModule = require('./src/config/database');
-        query = dbModule.query;
-      } catch (dbError) {
-        console.error('❌ 데이터베이스 모듈 로드 실패:', dbError.message);
-        return res.status(500).json({
-          success: false,
-          message: '데이터베이스 연결 오류가 발생했습니다.'
-        });
-      }
-
-      // 모든 활성 전략 비활성화
-      const result = await query(
-        `UPDATE trading_strategies 
-         SET is_active = false, end_date = CURRENT_TIMESTAMP 
-         WHERE user_id = $1 AND is_active = true
-         RETURNING id, strategy_name`,
-        [req.user.id]
-      );
-
-      console.log(`✅ ${result.rows.length}개 전략 비활성화 완료`);
-
+      // 🔥 메모리에서 사용자 상태 제거
+      const wasActive = userTradingStatus.has(req.user.id);
+      userTradingStatus.delete(req.user.id);
+      
+      console.log('✅ 사용자 자동매매 상태 제거:', req.user.id);
+      console.log('📊 현재 활성 사용자 수:', userTradingStatus.size);
+      
       res.json({
         success: true,
-        message: '자동매매가 중단되었습니다.',
-        data: {
-          stoppedStrategies: result.rows.length
-        }
+        message: wasActive ? '자동매매가 중단되었습니다.' : '자동매매가 이미 중단된 상태입니다.',
+        data: { isActive: false }
       });
-
+      
     } catch (error) {
       console.error('❌ 자동매매 중단 오류:', error);
       res.status(500).json({
         success: false,
-        message: '자동매매 중단 중 오류가 발생했습니다.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: '자동매매 중단 중 오류가 발생했습니다.'
       });
     }
   }
 );
-
-// server.js 파일의 서버 시작 코드(app.listen) 바로 위에 이 헬퍼 함수들을 추가하세요
 
 // 헬퍼 함수들
 function getStrategyName(marketType, region) {
