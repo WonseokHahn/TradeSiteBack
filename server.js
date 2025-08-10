@@ -1331,11 +1331,27 @@ async function searchNaverNews(keyword) {
     }];
   }
 }
-
-// GPT 요약 생성 함수 (개선된 버전)
+// GPT 요약 생성 함수 (개선된 버전) - server.js에서 기존 함수를 이것으로 교체하세요
 async function generateSummary(content) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    // 🔍 디버깅: API 키 확인
+    const apiKey = process.env.OPENAI_API_KEY;
+    console.log('🔍 OpenAI API Key 디버깅:');
+    console.log('- API Key exists:', !!apiKey);
+    console.log('- API Key length:', apiKey ? apiKey.length : 0);
+    console.log('- API Key prefix:', apiKey ? apiKey.substring(0, 10) + '...' : 'none');
+    console.log('- API Key suffix:', apiKey ? '...' + apiKey.substring(apiKey.length - 10) : 'none');
+    
+    // API 키 형식 검사
+    if (apiKey) {
+      console.log('- Starts with sk-:', apiKey.startsWith('sk-'));
+      console.log('- Contains sk-proj-:', apiKey.includes('sk-proj-'));
+      console.log('- Has whitespace:', /\s/.test(apiKey));
+      console.log('- Has special chars:', /[^\w-]/.test(apiKey.replace(/sk-proj?-/, '')));
+    }
+    
+    if (!apiKey) {
+      console.log('⚠️ OpenAI API 키가 설정되지 않음');
       // OpenAI API가 없을 때 간단한 대체 요약
       const sentences = content.split('.').filter(s => s.trim().length > 10);
       if (sentences.length > 0) {
@@ -1344,34 +1360,53 @@ async function generateSummary(content) {
       return content.substring(0, 100) + '...';
     }
 
-    const axios = require('axios');
+    // 🔥 새로운 OpenAI 클라이언트 방식 사용 (axios 대신)
+    console.log('🤖 OpenAI API 호출 시작...');
     
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "당신은 한국의 주식 관련 뉴스를 요약하는 전문가입니다. 주어진 뉴스를 2-3문장으로 간결하고 핵심적인 내용만 한국어로 요약해주세요. 투자자에게 도움이 되는 정보를 위주로 요약하세요."
-        },
-        {
-          role: "user",
-          content: `다음 뉴스를 요약해주세요: ${content.substring(0, 800)}`
-        }
-      ],
-      max_tokens: 150,
-      temperature: 0.7,
-    }, {
+    // fetch를 사용한 직접 API 호출
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json'
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'TradingSite/1.0'
       },
-      timeout: 10000
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: "당신은 한국의 주식 관련 뉴스를 요약하는 전문가입니다. 주어진 뉴스를 2-3문장으로 간결하고 핵심적인 내용만 한국어로 요약해주세요. 투자자에게 도움이 되는 정보를 위주로 요약하세요."
+          },
+          {
+            role: "user",
+            content: `다음 뉴스를 요약해주세요: ${content.substring(0, 800)}`
+          }
+        ],
+        max_tokens: 150,
+        temperature: 0.7,
+      })
     });
 
-    return response.data.choices[0].message.content.trim();
+    console.log('📊 OpenAI API 응답 상태:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('❌ OpenAI API 오류 응답:', errorData);
+      throw new Error(`OpenAI API 오류: ${response.status} - ${errorData}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ OpenAI API 호출 성공');
+    
+    return data.choices[0].message.content.trim();
     
   } catch (error) {
-    console.error('❌ GPT 요약 생성 오류:', error.response?.data || error.message);
+    console.error('❌ GPT 요약 생성 상세 오류:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 500)
+    });
     
     // GPT API 오류 시 간단한 대체 요약
     const sentences = content.split('.').filter(s => s.trim().length > 10);
