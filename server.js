@@ -8,6 +8,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
+const marketTimeService = require('./src/services/marketTimeService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1752,134 +1753,6 @@ app.get('/api/trading/history',
         console.log('🔄 더미 데이터로 폴백');
       }
       
-      // 데이터가 없거나 DB 오류시 기술적 분석이 포함된 더미 데이터 제공
-      // if (!orders || orders.length === 0) {
-      //   const now = new Date();
-      //   orders = [
-      //     {
-      //       id: 1,
-      //       stock_code: '005930',
-      //       stock_name: '삼성전자',
-      //       region: 'domestic',
-      //       order_type: 'BUY',
-      //       quantity: 10,
-      //       order_price: 75000,
-      //       executed_price: 75000,
-      //       total_amount: 750000,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 300000).toISOString(),
-      //       created_at: new Date(now.getTime() - 300000).toISOString(),
-      //       strategy_name: '상승장 모멘텀 전략',
-      //       market_type: 'bull',
-      //       error_message: 'RSI 정상 구간, 강한 상승 모멘텀, 이평선 정배열 | 기술적 분석 신호 강도: 75'
-      //     },
-      //     {
-      //       id: 2,
-      //       stock_code: 'AAPL',
-      //       stock_name: 'Apple Inc.',
-      //       region: 'global',
-      //       order_type: 'BUY',
-      //       quantity: 5,
-      //       order_price: 180.50,
-      //       executed_price: 180.50,
-      //       total_amount: 902.50,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 1800000).toISOString(),
-      //       created_at: new Date(now.getTime() - 1800000).toISOString(),
-      //       strategy_name: '글로벌 기술주 성장 전략',
-      //       market_type: 'bull',
-      //       error_message: 'MACD 상승 신호, 모멘텀 강화, 20일선 돌파 | 기술적 분석 신호 강도: 82'
-      //     },
-      //     {
-      //       id: 3,
-      //       stock_code: '000660',
-      //       stock_name: 'SK하이닉스',  
-      //       region: 'domestic',
-      //       order_type: 'SELL',
-      //       quantity: 3,
-      //       order_price: 120000,
-      //       executed_price: 119500,
-      //       total_amount: 358500,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 3600000).toISOString(),
-      //       created_at: new Date(now.getTime() - 3600000).toISOString(),
-      //       strategy_name: '상승장 모멘텀 전략',
-      //       market_type: 'bull',
-      //       error_message: 'RSI 과매수, 볼린저 밴드 상단 도달 | 손익률: +8.4% | 일부 이익실현'
-      //     },
-      //     {
-      //       id: 4,
-      //       stock_code: 'MSFT',
-      //       stock_name: 'Microsoft Corp.',
-      //       region: 'global',
-      //       order_type: 'BUY',
-      //       quantity: 2,
-      //       order_price: 415.30,
-      //       executed_price: 415.30,
-      //       total_amount: 830.60,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 7200000).toISOString(),
-      //       created_at: new Date(now.getTime() - 7200000).toISOString(),
-      //       strategy_name: '글로벌 기술주 성장 전략',
-      //       market_type: 'bull',
-      //       error_message: '골든크로스 형성, 거래량 급증, 모멘텀 지속 | 기술적 분석 신호 강도: 88'
-      //     },
-      //     {
-      //       id: 5,
-      //       stock_code: '035420',
-      //       stock_name: 'NAVER',
-      //       region: 'domestic',
-      //       order_type: 'SELL',
-      //       quantity: 4,
-      //       order_price: 185000,
-      //       executed_price: 184500, 
-      //       total_amount: 738000,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 14400000).toISOString(),
-      //       created_at: new Date(now.getTime() - 14400000).toISOString(),
-      //       strategy_name: '하락장 가치투자 전략',
-      //       market_type: 'bear',
-      //       error_message: '하락 모멘텀 감지, 20일선 이탈, 손절매 실행 | 손익률: -3.2%'
-      //     },
-      //     {
-      //       id: 6,
-      //       stock_code: 'TSLA',
-      //       stock_name: 'Tesla Inc.',
-      //       region: 'global',
-      //       order_type: 'BUY',
-      //       quantity: 3,
-      //       order_price: 248.50,
-      //       executed_price: 245.20,
-      //       total_amount: 735.60,
-      //       status: 'FILLED',
-      //       executed_at: new Date(now.getTime() - 21600000).toISOString(),
-      //       created_at: new Date(now.getTime() - 21600000).toISOString(),
-      //       strategy_name: '하락장 가치투자 전략',
-      //       market_type: 'bear',
-      //       error_message: 'RSI 과매도(28), 볼린저 밴드 하단 터치, 가치매수 기회 | 기술적 분석 신호 강도: 65'
-      //     },
-      //     {
-      //       id: 7,
-      //       stock_code: '000000',
-      //       stock_name: '리밸런싱 제안',
-      //       region: 'domestic',
-      //       order_type: 'REBALANCING_SUGGESTION',
-      //       quantity: 0,
-      //       order_price: 0,
-      //       executed_price: 0,
-      //       total_amount: 0,
-      //       status: 'REBALANCING_SUGGESTION',
-      //       executed_at: new Date(now.getTime() - 25200000).toISOString(),
-      //       created_at: new Date(now.getTime() - 25200000).toISOString(),
-      //       strategy_name: '포트폴리오 리밸런싱',
-      //       market_type: 'bull',
-      //       error_message: '리밸런싱 제안: 반도체 섹터 비중 증가 권장, 기술주 강세 지속 예상 (강도: 72)'
-      //     }
-      //   ];
-        
-      //   console.log(`🎭 기술적 분석이 포함된 더미 매매 이력 제공: ${orders.length}건`);
-      // }
-
       // 응답 데이터 정리 - 기술적 분석 정보 포함
       const cleanedOrders = orders.map(order => ({
         id: order.id,
@@ -1946,6 +1819,90 @@ app.get('/api/trading/history',
         total: fallbackOrders.length,
         message: '매매 이력 조회 중 오류가 발생하여 샘플 데이터를 표시합니다.',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+// server.js의 /api/trading/market-status 라우터를 이것으로 교체
+app.get('/api/trading/market-status', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const { region } = req.query;
+      console.log('🕐 KIS API 기반 시장 상태 확인 요청:', region);
+      
+      if (!region) {
+        return res.status(400).json({
+          success: false,
+          message: '지역(region) 파라미터가 필요합니다. (domestic 또는 global)'
+        });
+      }
+
+      if (region !== 'domestic' && region !== 'global') {
+        return res.status(400).json({
+          success: false,
+          message: 'region은 domestic 또는 global이어야 합니다.'
+        });
+      }
+
+      // 🔥 KIS API로 실제 시장 상태 확인
+      const marketTimeService = require('./src/services/marketTimeService');
+      const marketStatus = await marketTimeService.getMarketStatus(region);
+      const statusText = marketTimeService.getStatusText(marketStatus);
+
+      console.log('📊 KIS API 시장 상태 응답:', {
+        지역: region,
+        개장여부: marketStatus.isOpen,
+        상태: marketStatus.status,
+        소스: marketStatus.source
+      });
+
+      res.json({
+        success: true,
+        data: {
+          region,
+          isOpen: marketStatus.isOpen,
+          status: marketStatus.status,
+          message: marketStatus.message,
+          statusText,
+          checkedAt: marketStatus.checkedAt,
+          source: marketStatus.source,
+          // 추가 정보
+          marketType: marketStatus.marketType,
+          lastPrice: marketStatus.lastPrice || null,
+          error: marketStatus.error || null
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ KIS API 시장 상태 확인 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: 'KIS API 시장 상태 확인 중 오류가 발생했습니다.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+);
+
+// 시장 상태 캐시 클리어 API (관리자용)
+app.post('/api/trading/market-status/clear-cache', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const marketTimeService = require('./src/services/marketTimeService');
+      marketTimeService.clearCache();
+      
+      res.json({
+        success: true,
+        message: '시장 상태 캐시가 클리어되었습니다.'
+      });
+    } catch (error) {
+      console.error('❌ 캐시 클리어 오류:', error);
+      res.status(500).json({
+        success: false,
+        message: '캐시 클리어 중 오류가 발생했습니다.'
       });
     }
   }
@@ -2028,7 +1985,7 @@ app.get('/api/trading/status',
 // 🔥 메모리에서 사용자별 자동매매 상태 관리
 const userTradingStatus = new Map(); // userId -> { isActive, strategy, startedAt }
 
-// 자동매매 시작 라우트 - 수정된 버전
+// server.js의 자동매매 시작 라우트를 이것으로 교체
 app.post('/api/trading/start', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
@@ -2043,10 +2000,9 @@ app.post('/api/trading/start',
         });
       }
       
-      // 🔥 메모리에서 사용자 상태 업데이트
+      // 🔥 1단계: 전략 정보 조회
       let strategy = null;
       
-      // 데이터베이스에서 전략 정보 가져오기 시도
       try {
         const { query } = require('./src/config/database');
         const result = await query(
@@ -2067,29 +2023,83 @@ app.post('/api/trading/start',
           user_id: req.user.id,
           strategy_name: '모의 전략',
           market_type: 'bull',
-          region: 'global',
+          region: req.body.region || 'domestic', // 지역 정보 필요
           stocks: [],
           is_active: true
         };
       }
       
-      // 🔥 사용자 상태를 메모리에 저장
+      if (!strategy) {
+        return res.status(404).json({
+          success: false,
+          message: '전략을 찾을 수 없습니다.'
+        });
+      }
+      
+      // 🔥 2단계: KIS API로 실제 시장 상태 확인
+      console.log('🕐 KIS API로 시장 상태 확인 중...', strategy.region);
+      
+      const marketTimeService = require('./src/services/marketTimeService');
+      const marketCheck = await marketTimeService.canExecuteTrading(strategy.region);
+      
+      console.log('📊 KIS API 시장 상태 결과:', {
+        지역: strategy.region,
+        시장개장: marketCheck.canExecute,
+        상태: marketCheck.statusText,
+        소스: marketCheck.marketStatus.source
+      });
+      
+      // 🔥 3단계: 시장이 닫혀있으면 자동매매 시작 거부
+      if (!marketCheck.canExecute) {
+        console.log('❌ 시장 마감으로 인한 자동매매 시작 거부');
+        
+        return res.status(400).json({
+          success: false,
+          message: `현재 ${strategy.region === 'domestic' ? '한국' : '미국'} 시장이 마감되어 자동매매를 시작할 수 없습니다.`,
+          data: {
+            marketStatus: marketCheck.marketStatus,
+            statusText: marketCheck.statusText,
+            canExecute: false,
+            reason: 'MARKET_CLOSED'
+          }
+        });
+      }
+      
+      // 🔥 4단계: 시장이 열려있으면 자동매매 시작
+      console.log('✅ 시장 개장 확인 - 자동매매 시작 허용');
+      
+      // 사용자 상태를 메모리에 저장
       userTradingStatus.set(req.user.id, {
         isActive: true,
         strategy: strategy,
-        startedAt: new Date().toISOString()
+        startedAt: new Date().toISOString(),
+        marketStatus: marketCheck.marketStatus
       });
+      
+      // DB에서도 전략 활성화
+      try {
+        const { query } = require('./src/config/database');
+        await query(
+          'UPDATE trading_strategies SET is_active = true, start_date = CURRENT_TIMESTAMP WHERE id = $1',
+          [strategyId]
+        );
+        console.log('✅ DB에서 전략 활성화 완료');
+      } catch (dbError) {
+        console.error('❌ DB 전략 활성화 실패:', dbError.message);
+      }
       
       console.log('✅ 사용자 자동매매 상태 업데이트:', req.user.id, '-> 활성화');
       console.log('📊 현재 활성 사용자 수:', userTradingStatus.size);
       
       res.json({
         success: true,
-        message: '자동매매가 시작되었습니다.',
+        message: `${marketCheck.statusText} - 자동매매가 시작되었습니다.`,
         data: { 
           strategyId, 
           isActive: true,
-          strategy: strategy
+          strategy: strategy,
+          marketStatus: marketCheck.marketStatus,
+          startedAt: new Date().toISOString()
         }
       });
       
@@ -2097,7 +2107,8 @@ app.post('/api/trading/start',
       console.error('❌ 자동매매 시작 오류:', error);
       res.status(500).json({
         success: false,
-        message: '자동매매 시작 중 오류가 발생했습니다.'
+        message: '자동매매 시작 중 오류가 발생했습니다.',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }
