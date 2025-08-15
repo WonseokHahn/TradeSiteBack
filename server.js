@@ -1951,14 +1951,14 @@ app.get('/api/trading/history',
   }
 );
 
-// Trading 상태 조회 - 수정된 버전
+// server.js의 /api/trading/status 라우터를 이것으로 교체
 app.get('/api/trading/status', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
       console.log('📊 트레이딩 상태 조회:', req.user.id);
       
-      // 🔥 메모리에서 사용자 상태 확인
+      // 🔥 1순위: 메모리에서 사용자 상태 확인 (가장 정확한 실시간 상태)
       const userStatus = userTradingStatus.get(req.user.id);
       
       if (userStatus) {
@@ -1972,56 +1972,53 @@ app.get('/api/trading/status',
             startedAt: userStatus.startedAt
           }
         });
-      } else {
-        console.log('ℹ️ 메모리에 활성 상태 없음, DB 확인 시도...');
-        
-        // 메모리에 없으면 DB에서 확인 (백업)
-        let strategy = null;
-        try {
-          const { query } = require('./src/config/database');
-          
-          const result = await query(
-            `SELECT * FROM trading_strategies 
-             WHERE user_id = $1 AND is_active = true
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            [req.user.id]
-          );
-
-          if (result && result.rows && result.rows.length > 0) {
-            strategy = result.rows[0];
-            
-            if (strategy.stocks && typeof strategy.stocks === 'string') {
-              try {
-                strategy.stocks = JSON.parse(strategy.stocks);
-              } catch (parseError) {
-                console.error('JSON 파싱 오류:', parseError);
-                strategy.stocks = [];
-              }
-            }
-            
-            console.log('📊 DB에서 활성 전략 발견:', strategy.strategy_name);
-          }
-        } catch (dbError) {
-          console.error('❌ DB 조회 오류:', dbError.message);
-        }
-
-        res.json({
-          success: true,
-          data: {
-            isActive: !!strategy,
-            strategy: strategy
-          }
-        });
+        return; // 🔥 메모리에 있으면 DB 조회 생략
       }
       
-    } catch (error) {
-      console.error('❌ 트레이딩 상태 조회 오류:', error);
+      // 🔥 메모리에 없으면 확실히 비활성 상태
+      console.log('ℹ️ 메모리에 활성 상태 없음 - 비활성으로 확정');
+      
+      // 🔥 메모리에 없으면 DB도 비활성화 (일관성 보장)
+      try {
+        const { query } = require('./src/config/database');
+        
+        // DB의 활성 전략도 모두 비활성화
+        const updateResult = await query(
+          `UPDATE trading_strategies 
+           SET is_active = false, end_date = CURRENT_TIMESTAMP 
+           WHERE user_id = $1 AND is_active = true
+           RETURNING id`,
+          [req.user.id]
+        );
+        
+        if (updateResult && updateResult.rows && updateResult.rows.length > 0) {
+          console.log(`🔄 DB에서 ${updateResult.rows.length}개 전략 비활성화 완료`);
+        }
+        
+      } catch (dbError) {
+        console.error('❌ DB 상태 동기화 오류:', dbError.message);
+      }
+      
+      // 🔥 확실히 비활성 상태로 응답
       res.json({
         success: true,
         data: {
           isActive: false,
-          strategy: null
+          strategy: null,
+          message: '자동매매가 비활성 상태입니다.'
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ 트레이딩 상태 조회 오류:', error);
+      
+      // 🔥 오류 시에도 안전하게 비활성으로 응답
+      res.json({
+        success: true,
+        data: {
+          isActive: false,
+          strategy: null,
+          error: '상태 조회 중 오류 발생'
         }
       });
     }
