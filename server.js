@@ -1678,7 +1678,7 @@ app.get('/api/trading/strategies/:id', async (req, res) => {
   }
 });
 
-// Trading 매매 이력 라우터 - 안전한 버전 (기존 코드를 이것으로 교체)
+// Trading 매매 이력 라우터 - 기술적 분석 정보 포함
 app.get('/api/trading/history', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
@@ -1713,7 +1713,7 @@ app.get('/api/trading/history',
         if (tableCheck && tableCheck.rows && tableCheck.rows[0] && tableCheck.rows[0].exists) {
           console.log('✅ trading_orders 테이블 확인됨');
           
-          // 실제 데이터 조회 - 더 안전한 쿼리
+          // 실제 데이터 조회 - 기술적 분석 정보 포함
           const result = await query(
             `SELECT 
                o.id,
@@ -1728,7 +1728,9 @@ app.get('/api/trading/history',
                o.status,
                o.executed_at,
                o.created_at,
-               COALESCE(s.strategy_name, '기본 전략') as strategy_name
+               o.error_message,
+               COALESCE(s.strategy_name, '기본 전략') as strategy_name,
+               s.market_type
              FROM trading_orders o
              LEFT JOIN trading_strategies s ON o.strategy_id = s.id
              WHERE o.user_id = $1
@@ -1750,7 +1752,7 @@ app.get('/api/trading/history',
         console.log('🔄 더미 데이터로 폴백');
       }
       
-      // 데이터가 없거나 DB 오류시 더미 데이터 제공
+      // 데이터가 없거나 DB 오류시 기술적 분석이 포함된 더미 데이터 제공
       if (!orders || orders.length === 0) {
         const now = new Date();
         orders = [
@@ -1765,9 +1767,11 @@ app.get('/api/trading/history',
             executed_price: 75000,
             total_amount: 750000,
             status: 'FILLED',
-            executed_at: new Date(now.getTime() - 300000).toISOString(), // 5분 전
+            executed_at: new Date(now.getTime() - 300000).toISOString(),
             created_at: new Date(now.getTime() - 300000).toISOString(),
-            strategy_name: '상승장 국내 전략'
+            strategy_name: '상승장 모멘텀 전략',
+            market_type: 'bull',
+            error_message: 'RSI 정상 구간, 강한 상승 모멘텀, 이평선 정배열 | 기술적 분석 신호 강도: 75'
           },
           {
             id: 2,
@@ -1780,9 +1784,11 @@ app.get('/api/trading/history',
             executed_price: 180.50,
             total_amount: 902.50,
             status: 'FILLED',
-            executed_at: new Date(now.getTime() - 1800000).toISOString(), // 30분 전
+            executed_at: new Date(now.getTime() - 1800000).toISOString(),
             created_at: new Date(now.getTime() - 1800000).toISOString(),
-            strategy_name: '글로벌 기술주 전략'
+            strategy_name: '글로벌 기술주 성장 전략',
+            market_type: 'bull',
+            error_message: 'MACD 상승 신호, 모멘텀 강화, 20일선 돌파 | 기술적 분석 신호 강도: 82'
           },
           {
             id: 3,
@@ -1795,9 +1801,11 @@ app.get('/api/trading/history',
             executed_price: 119500,
             total_amount: 358500,
             status: 'FILLED',
-            executed_at: new Date(now.getTime() - 3600000).toISOString(), // 1시간 전
+            executed_at: new Date(now.getTime() - 3600000).toISOString(),
             created_at: new Date(now.getTime() - 3600000).toISOString(),
-            strategy_name: '상승장 국내 전략'
+            strategy_name: '상승장 모멘텀 전략',
+            market_type: 'bull',
+            error_message: 'RSI 과매수, 볼린저 밴드 상단 도달 | 손익률: +8.4% | 일부 이익실현'
           },
           {
             id: 4,
@@ -1810,46 +1818,69 @@ app.get('/api/trading/history',
             executed_price: 415.30,
             total_amount: 830.60,
             status: 'FILLED',
-            executed_at: new Date(now.getTime() - 7200000).toISOString(), // 2시간 전
+            executed_at: new Date(now.getTime() - 7200000).toISOString(),
             created_at: new Date(now.getTime() - 7200000).toISOString(),
-            strategy_name: '글로벌 기술주 전략'
+            strategy_name: '글로벌 기술주 성장 전략',
+            market_type: 'bull',
+            error_message: '골든크로스 형성, 거래량 급증, 모멘텀 지속 | 기술적 분석 신호 강도: 88'
           },
           {
             id: 5,
             stock_code: '035420',
             stock_name: 'NAVER',
             region: 'domestic',
-            order_type: 'BUY',
-            quantity: 8,
+            order_type: 'SELL',
+            quantity: 4,
             order_price: 185000,
             executed_price: 184500, 
-            total_amount: 1476000,
+            total_amount: 738000,
             status: 'FILLED',
-            executed_at: new Date(now.getTime() - 14400000).toISOString(), // 4시간 전
+            executed_at: new Date(now.getTime() - 14400000).toISOString(),
             created_at: new Date(now.getTime() - 14400000).toISOString(),
-            strategy_name: '상승장 국내 전략'
+            strategy_name: '하락장 가치투자 전략',
+            market_type: 'bear',
+            error_message: '하락 모멘텀 감지, 20일선 이탈, 손절매 실행 | 손익률: -3.2%'
           },
           {
             id: 6,
-            stock_code: 'GOOGL',
-            stock_name: 'Alphabet Inc.',
+            stock_code: 'TSLA',
+            stock_name: 'Tesla Inc.',
             region: 'global',
             order_type: 'BUY',
-            quantity: 1,
-            order_price: 2850.75,
-            executed_price: 2845.20,
-            total_amount: 2845.20,
-            status: 'PARTIALLY_FILLED',
-            executed_at: new Date(now.getTime() - 21600000).toISOString(), // 6시간 전
+            quantity: 3,
+            order_price: 248.50,
+            executed_price: 245.20,
+            total_amount: 735.60,
+            status: 'FILLED',
+            executed_at: new Date(now.getTime() - 21600000).toISOString(),
             created_at: new Date(now.getTime() - 21600000).toISOString(),
-            strategy_name: '글로벌 기술주 전략'
+            strategy_name: '하락장 가치투자 전략',
+            market_type: 'bear',
+            error_message: 'RSI 과매도(28), 볼린저 밴드 하단 터치, 가치매수 기회 | 기술적 분석 신호 강도: 65'
+          },
+          {
+            id: 7,
+            stock_code: '000000',
+            stock_name: '리밸런싱 제안',
+            region: 'domestic',
+            order_type: 'REBALANCING_SUGGESTION',
+            quantity: 0,
+            order_price: 0,
+            executed_price: 0,
+            total_amount: 0,
+            status: 'REBALANCING_SUGGESTION',
+            executed_at: new Date(now.getTime() - 25200000).toISOString(),
+            created_at: new Date(now.getTime() - 25200000).toISOString(),
+            strategy_name: '포트폴리오 리밸런싱',
+            market_type: 'bull',
+            error_message: '리밸런싱 제안: 반도체 섹터 비중 증가 권장, 기술주 강세 지속 예상 (강도: 72)'
           }
         ];
         
-        console.log(`🎭 더미 매매 이력 제공: ${orders.length}건`);
+        console.log(`🎭 기술적 분석이 포함된 더미 매매 이력 제공: ${orders.length}건`);
       }
 
-      // 응답 데이터 정리
+      // 응답 데이터 정리 - 기술적 분석 정보 포함
       const cleanedOrders = orders.map(order => ({
         id: order.id,
         stock_code: order.stock_code,
@@ -1863,14 +1894,25 @@ app.get('/api/trading/history',
         status: order.status || 'FILLED',
         executed_at: order.executed_at,
         created_at: order.created_at,
-        strategy_name: order.strategy_name || '기본 전략'
+        strategy_name: order.strategy_name || '기본 전략',
+        market_type: order.market_type,
+        technical_analysis: order.error_message || '', // 기술적 분석 정보
+        is_rebalancing: order.order_type === 'REBALANCING_SUGGESTION'
       }));
 
       res.json({
         success: true,
         data: cleanedOrders,
         total: cleanedOrders.length,
-        message: cleanedOrders.length > 0 ? '매매 이력을 성공적으로 조회했습니다.' : '매매 이력이 없습니다.'
+        message: cleanedOrders.length > 0 ? '기술적 분석 기반 매매 이력을 성공적으로 조회했습니다.' : '매매 이력이 없습니다.',
+        analysis_info: {
+          total_orders: cleanedOrders.filter(o => !o.is_rebalancing).length,
+          buy_orders: cleanedOrders.filter(o => o.order_type === 'BUY').length,
+          sell_orders: cleanedOrders.filter(o => o.order_type === 'SELL').length,
+          rebalancing_suggestions: cleanedOrders.filter(o => o.is_rebalancing).length,
+          bull_strategy_orders: cleanedOrders.filter(o => o.market_type === 'bull').length,
+          bear_strategy_orders: cleanedOrders.filter(o => o.market_type === 'bear').length
+        }
       });
 
     } catch (error) {
@@ -1891,7 +1933,10 @@ app.get('/api/trading/history',
           status: 'FILLED',
           executed_at: new Date().toISOString(),
           created_at: new Date().toISOString(),
-          strategy_name: '기본 전략'
+          strategy_name: '기본 전략',
+          market_type: 'bull',
+          technical_analysis: '시스템 오류로 인한 기본 데이터',
+          is_rebalancing: false
         }
       ];
       
