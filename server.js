@@ -1986,68 +1986,108 @@ app.get('/api/trading/status',
 const userTradingStatus = new Map(); // userId -> { isActive, strategy, startedAt }
 
 // server.js의 자동매매 시작 라우트를 이것으로 교체
+// server.js의 자동매매 시작 라우트를 이것으로 교체
 app.post('/api/trading/start', 
   passport.authenticate('jwt', { session: false }),
   async (req, res) => {
     try {
-      const { strategyId } = req.body;
-      console.log('🚀 자동매매 시작 요청:', { strategyId, userId: req.user.id });
+      console.log('🚀 자동매매 시작 요청 받음');
+      console.log('👤 사용자 ID:', req.user.id);
+      console.log('📦 요청 body 전체:', JSON.stringify(req.body, null, 2));
+      console.log('📦 요청 headers:', req.headers);
       
+      const { strategyId } = req.body;
+      
+      // 🔥 상세한 입력 검증 및 로깅
       if (!strategyId) {
+        console.log('❌ strategyId가 없음');
+        console.log('전체 body keys:', Object.keys(req.body));
+        console.log('strategyId 값:', strategyId, '타입:', typeof strategyId);
+        
         return res.status(400).json({
           success: false,
-          message: '전략 ID가 필요합니다.'
+          message: '전략 ID가 필요합니다.',
+          debug: {
+            receivedBody: req.body,
+            strategyId: strategyId,
+            bodyKeys: Object.keys(req.body)
+          }
         });
       }
+      
+      console.log('✅ strategyId 확인:', strategyId, '타입:', typeof strategyId);
       
       // 🔥 1단계: 전략 정보 조회
       let strategy = null;
       
       try {
         const { query } = require('./src/config/database');
+        console.log('🔍 데이터베이스에서 전략 조회 중...');
+        
         const result = await query(
           `SELECT * FROM trading_strategies WHERE id = $1 AND user_id = $2`,
           [strategyId, req.user.id]
         );
+        
+        console.log('📊 DB 조회 결과:', result.rows.length, '개 전략 발견');
         
         if (result.rows.length > 0) {
           strategy = result.rows[0];
           if (typeof strategy.stocks === 'string') {
             strategy.stocks = JSON.parse(strategy.stocks);
           }
+          console.log('✅ DB에서 전략 발견:', strategy.strategy_name, '지역:', strategy.region);
+        } else {
+          console.log('⚠️ DB에서 전략을 찾을 수 없음, 모의 전략 생성');
         }
       } catch (dbError) {
-        console.log('⚠️ DB에서 전략 조회 실패, 모의 전략 생성');
+        console.error('❌ DB 조회 오류:', dbError.message);
+        console.log('⚠️ DB 실패로 인한 모의 전략 생성');
+      }
+      
+      // 모의 전략 생성 (DB 실패 시)
+      if (!strategy) {
         strategy = {
           id: strategyId,
           user_id: req.user.id,
           strategy_name: '모의 전략',
           market_type: 'bull',
-          region: req.body.region || 'domestic', // 지역 정보 필요
+          region: 'domestic', // 기본값
           stocks: [],
           is_active: true
         };
-      }
-      
-      if (!strategy) {
-        return res.status(404).json({
-          success: false,
-          message: '전략을 찾을 수 없습니다.'
-        });
+        console.log('🎭 모의 전략 생성 완료:', strategy.strategy_name);
       }
       
       // 🔥 2단계: KIS API로 실제 시장 상태 확인
-      console.log('🕐 KIS API로 시장 상태 확인 중...', strategy.region);
+      console.log('🕐 KIS API로 시장 상태 확인 시작...', strategy.region);
       
-      const marketTimeService = require('./src/services/marketTimeService');
-      const marketCheck = await marketTimeService.canExecuteTrading(strategy.region);
-      
-      console.log('📊 KIS API 시장 상태 결과:', {
-        지역: strategy.region,
-        시장개장: marketCheck.canExecute,
-        상태: marketCheck.statusText,
-        소스: marketCheck.marketStatus.source
-      });
+      let marketCheck;
+      try {
+        const marketTimeService = require('./src/services/marketTimeService');
+        marketCheck = await marketTimeService.canExecuteTrading(strategy.region);
+        
+        console.log('📊 KIS API 시장 상태 결과:', {
+          지역: strategy.region,
+          시장개장: marketCheck.canExecute,
+          상태: marketCheck.statusText,
+          소스: marketCheck.marketStatus.source
+        });
+      } catch (marketError) {
+        console.error('❌ 시장 상태 확인 오류:', marketError.message);
+        
+        // 시장 상태 확인 실패 시 기본값으로 처리
+        marketCheck = {
+          canExecute: false,
+          marketStatus: {
+            isOpen: false,
+            status: 'ERROR',
+            message: '시장 상태 확인 실패',
+            source: 'ERROR'
+          },
+          statusText: '시장 상태 확인 오류'
+        };
+      }
       
       // 🔥 3단계: 시장이 닫혀있으면 자동매매 시작 거부
       if (!marketCheck.canExecute) {
@@ -2104,11 +2144,16 @@ app.post('/api/trading/start',
       });
       
     } catch (error) {
-      console.error('❌ 자동매매 시작 오류:', error);
+      console.error('❌ 자동매매 시작 전체 오류:', error);
+      console.error('❌ 오류 스택:', error.stack);
+      
       res.status(500).json({
         success: false,
-        message: '자동매매 시작 중 오류가 발생했습니다.',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: '자동매매 시작 중 서버 오류가 발생했습니다.',
+        error: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          stack: error.stack
+        } : undefined
       });
     }
   }
