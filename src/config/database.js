@@ -6,7 +6,9 @@ const connectDB = async () => {
   try {
     const config = {
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      family: 4 // IPv4 강제
+
     };
 
     pool = new Pool(config);
