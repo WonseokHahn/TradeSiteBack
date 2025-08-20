@@ -8,7 +8,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
-const marketTimeService = require('./src/services/marketTimeService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -175,18 +174,6 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// 기타 라우트들
-app.get('/api/auth/test', (req, res) => {
-  console.log('🧪 Auth 테스트 요청');
-  res.json({ 
-    message: 'Auth 라우터가 정상 작동합니다!',
-    timestamp: new Date().toISOString(),
-    oauth_ready: {
-      google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      kakao: !!process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET
-    }
-  });
-});
 
 // News 검색 라우터 - 네이버 API 사용
 app.get('/api/news/search', async (req, res) => {
