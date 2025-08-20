@@ -377,40 +377,143 @@ async function generateSummary(content) {
   }
 }
 
-// 에러 핸들링
+// 자동매매 시스템 상태 조회 (관리자용)
+app.get('/api/admin/trading-status', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const tradingEngine = require('./src/services/tradingEngine');
+      const systemStatus = tradingEngine.getSystemStatus();
+      
+      res.json({
+        success: true,
+        data: systemStatus
+      });
+    } catch (error) {
+      console.error('자동매매 시스템 상태 조회 실패:', error);
+      res.status(500).json({
+        success: false,
+        message: '시스템 상태를 조회할 수 없습니다.'
+      });
+    }
+  }
+);
+
+// 긴급 정지 (관리자용)
+app.post('/api/admin/emergency-stop', 
+  passport.authenticate('jwt', { session: false }),
+  async (req, res) => {
+    try {
+      const tradingEngine = require('./src/services/tradingEngine');
+      await tradingEngine.emergencyStopAll();
+      
+      res.json({
+        success: true,
+        message: '모든 자동매매가 긴급 정지되었습니다.'
+      });
+    } catch (error) {
+      console.error('긴급 정지 실패:', error);
+      res.status(500).json({
+        success: false,
+        message: '긴급 정지에 실패했습니다.'
+      });
+    }
+  }
+);
+
+// 에러 핸들링 미들웨어
 app.use((err, req, res, next) => {
   console.error('💥 서버 에러:', err);
-  res.status(500).json({ 
+  
+  // JWT 에러 처리
+  if (err.name === 'UnauthorizedError') {
+    return res.status(401).json({
+      success: false,
+      message: '인증이 필요합니다.'
+    });
+  }
+  
+  // 기타 에러 처리
+  res.status(err.status || 500).json({ 
+    success: false,
     message: '서버 오류가 발생했습니다.',
-    error: process.env.NODE_ENV === 'development' ? err.message : {}
+    error: process.env.NODE_ENV === 'development' ? {
+      message: err.message,
+      stack: err.stack
+    } : {}
   });
 });
 
 // 404 핸들링 (맨 마지막에)
-app.use((req, res) => {
+app.use('*', (req, res) => {
   console.log(`❌ 404 - 경로를 찾을 수 없음: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ 
+    success: false,
     message: '요청한 리소스를 찾을 수 없습니다.',
     path: req.originalUrl,
-    method: req.method
+    method: req.method,
+    timestamp: new Date().toISOString()
   });
 });
 
+// Graceful shutdown 처리
+process.on('SIGTERM', async () => {
+  console.log('👋 SIGTERM 신호 받음 - 서버를 안전하게 종료합니다...');
+  
+  try {
+    // 진행 중인 자동매매 정리
+    const tradingEngine = require('./src/services/tradingEngine');
+    await tradingEngine.emergencyStopAll();
+    console.log('✅ 자동매매 시스템 정리 완료');
+  } catch (error) {
+    console.error('❌ 자동매매 시스템 정리 실패:', error);
+  }
+  
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('👋 SIGINT 신호 받음 - 서버를 안전하게 종료합니다...');
+  
+  try {
+    // 진행 중인 자동매매 정리
+    const tradingEngine = require('./src/services/tradingEngine');
+    await tradingEngine.emergencyStopAll();
+    console.log('✅ 자동매매 시스템 정리 완료');
+  } catch (error) {
+    console.error('❌ 자동매매 시스템 정리 실패:', error);
+  }
+  
+  process.exit(0);
+});
+
+// 처리되지 않은 Promise 거부 처리
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ 처리되지 않은 Promise 거부:', reason);
+  console.error('Promise:', promise);
+});
+
+// 처리되지 않은 예외 처리
+process.on('uncaughtException', (error) => {
+  console.error('❌ 처리되지 않은 예외:', error);
+  process.exit(1);
+});
+
 // 서버 시작
-app.listen(PORT, () => {
-  console.log(`✅ 서버가 포트 ${PORT}에서 실행 중입니다.`);
-  console.log(`🌐 접속 URL: http://localhost:${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log('🎉=================================🎉');
+  console.log(`✅ 주식 자동매매 서버가 시작되었습니다!`);
+  console.log(`🌐 포트: ${PORT}`);
+  console.log(`🔗 URL: http://localhost:${PORT}`);
+  console.log('🎉=================================🎉');
+  console.log('📊 시스템 상태:');
   console.log('- Database:', '✅ 연결됨');
   console.log('- JWT:', !!process.env.JWT_SECRET ? '✅ 설정됨' : '❌ 미설정');
+  console.log('- KIS API:', !!(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET) ? '✅ 설정됨' : '❌ 미설정');
+  console.log('- OpenAI API:', !!process.env.OPENAI_API_KEY ? '✅ 설정됨' : '❌ 미설정');
+  console.log('- Naver API:', !!(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET) ? '✅ 설정됨' : '❌ 미설정');
+  console.log('🎉=================================🎉');
 });
 
-// 프로세스 종료 처리
-process.on('SIGTERM', () => {
-  console.log('👋 서버를 종료합니다...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('👋 서버를 종료합니다...');
-  process.exit(0);
-});
+// 서버 타임아웃 설정
+server.timeout = 120000; // 2분
