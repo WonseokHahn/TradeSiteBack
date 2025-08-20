@@ -8,51 +8,22 @@ const cors = require('cors');
 const helmet = require('helmet');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
+const marketTimeService = require('./src/services/marketTimeService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const axios = require('axios');
 console.log('⚙️ 미들웨어를 설정합니다...');
 
 // 미들웨어 설정
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
-
+app.use(helmet());
 app.use(cors({
-  origin: function (origin, callback) {
-    // 개발 환경에서는 모든 origin 허용
-    if (process.env.NODE_ENV === 'development') {
-      return callback(null, true);
-    }
-    
-    // 프로덕션에서는 특정 도메인만 허용
-    const allowedOrigins = [
-      'https://wonseokhahn.github.io',
-      'https://tradesiteback.onrender.com',
-      process.env.FRONTEND_URL
-    ].filter(Boolean);
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS 정책에 의해 차단되었습니다.'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  origin: '*', // 임시로 모든 도메인 허용
+  credentials: false // credentials는 false로 설정
 }));
-
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// 기본 요청 로깅
-app.use((req, res, next) => {
-  console.log(`📝 ${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Passport 초기화
 console.log('🔐 Passport를 초기화합니다...');
@@ -90,30 +61,27 @@ const generateToken = (user) => {
   );
 };
 
+// API 요청 로깅 미들웨어
+app.use('/api', (req, res, next) => {
+  console.log(`🔍 [${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // 기본 라우트
 app.get('/', (req, res) => {
   console.log('📍 기본 라우트 접근');
   res.json({ 
     message: '주식 자동매매 API 서버',
-    version: '2.2.0',
+    version: '2.1.0',
     status: 'running',
     timestamp: new Date().toISOString(),
-    features: {
-      oauth: {
-        google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-        kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET)
-      },
-      trading: {
-        kis_configured: !!(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET),
-        openai_configured: !!process.env.OPENAI_API_KEY,
-        account_configured: !!process.env.KIS_ACCOUNT_NO
-      },
-      news: {
-        naver_configured: !!(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET)
-      }
+    oauth: {
+      google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET)
     }
   });
 });
+
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -122,136 +90,79 @@ app.get('/api/health', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    memory: process.memoryUsage(),
     oauth_status: {
       google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
       kakao: !!(process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET),
       jwt: !!process.env.JWT_SECRET,
       database: true
-    },
-    trading_status: {
-      kis_api: !!(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET),
-      openai_api: !!process.env.OPENAI_API_KEY,
-      account_configured: !!process.env.KIS_ACCOUNT_NO
-    },
-    news_status: {
-      naver_api: !!(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET)
     }
   });
 });
 
-// API 요청 로깅 미들웨어
-app.use('/api', (req, res, next) => {
-  console.log(`🔍 [${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-  next();
-});
+// OAuth 라우터 - Google
+app.get('/api/auth/google', 
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
 
-// Trading 라우터 추가 (안전한 방식)
-console.log('📈 Trading 라우터를 설정합니다...');
-try {
-  const tradingRoutes = require('./src/routes/trading');
-  app.use('/api/trading', tradingRoutes);
-  console.log('✅ Trading 라우터 연결 완료');
-} catch (error) {
-  console.error('❌ Trading 라우터 로드 실패:', error.message);
-  
-  // 대체 라우터 생성 (Trading 라우터 로드 실패 시)
-  app.get('/api/trading/*', (req, res) => {
-    res.status(503).json({
-      success: false,
-      message: 'Trading 서비스가 현재 사용할 수 없습니다.',
-      error: 'SERVICE_UNAVAILABLE'
-    });
-  });
-}
+app.get('/api/auth/google/callback',
+  passport.authenticate('google', { session: false }),
+  (req, res) => {
+    try {
+      console.log('✅ Google OAuth 성공:', req.user);
+      
+      // JWT 토큰 생성
+      const token = generateToken(req.user);
+      console.log('🎫 JWT 토큰 생성 완료');
 
-// OAuth 라우터들을 안전하게 등록
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  // Google OAuth 라우터
-  app.get('/api/auth/google', 
-    passport.authenticate('google', { scope: ['profile', 'email'] })
-  );
-
-  app.get('/api/auth/google/callback',
-    passport.authenticate('google', { session: false }),
-    (req, res) => {
-      try {
-        console.log('✅ Google OAuth 성공:', req.user);
-        
-        const token = generateToken(req.user);
-        console.log('🎫 JWT 토큰 생성 완료');
-
-        const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=google&name=${encodeURIComponent(req.user.name)}`;
-        console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
-        
-        res.redirect(redirectURL);
-      } catch (error) {
-        console.error('❌ Google 콜백 처리 실패:', error);
-        res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
-      }
+      // 프론트엔드로 토큰과 함께 리다이렉트
+      const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=google&name=${encodeURIComponent(req.user.name)}`;
+      console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
+      
+      res.redirect(redirectURL);
+    } catch (error) {
+      console.error('❌ Google 콜백 처리 실패:', error);
+      res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
     }
-  );
-} else {
-  app.get('/api/auth/google', (req, res) => {
-    res.status(501).json({
-      success: false,
-      message: 'Google OAuth가 설정되지 않았습니다.'
-    });
-  });
-}
+  }
+);
 
-if (process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET) {
-  // Kakao OAuth 라우터
-  app.get('/api/auth/kakao',
-    passport.authenticate('kakao')
-  );
+// OAuth 라우터 - Kakao
+app.get('/api/auth/kakao',
+  passport.authenticate('kakao')
+);
 
-  app.get('/api/auth/kakao/callback',
-    passport.authenticate('kakao', { session: false }),
-    (req, res) => {
-      try {
-        console.log('✅ Kakao OAuth 성공:', req.user);
-        
-        const token = generateToken(req.user);
-        console.log('🎫 JWT 토큰 생성 완료');
-        
-        const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
-        console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
-        
-        res.redirect(redirectURL);
-      } catch (error) {
-        console.error('❌ Kakao 콜백 처리 실패:', error);
-        res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
-      }
+app.get('/api/auth/kakao/callback',
+  passport.authenticate('kakao', { session: false }),
+  (req, res) => {
+    try {
+      console.log('✅ Kakao OAuth 성공:', req.user);
+      
+      // JWT 토큰 생성
+      const token = generateToken(req.user);
+      console.log('🎫 JWT 토큰 생성 완료');
+      
+      // 프론트엔드로 토큰과 함께 리다이렉트
+      const redirectURL = `${process.env.FRONTEND_URL}/auth/callback?token=${token}&provider=kakao&name=${encodeURIComponent(req.user.name)}`;
+      console.log('🔄 프론트엔드로 리다이렉트:', redirectURL);
+      
+      res.redirect(redirectURL);
+    } catch (error) {
+      console.error('❌ Kakao 콜백 처리 실패:', error);
+      res.redirect(`${process.env.FRONTEND_URL}/login?error=auth_failed`);
     }
-  );
-} else {
-  app.get('/api/auth/kakao', (req, res) => {
-    res.status(501).json({
-      success: false,
-      message: 'Kakao OAuth가 설정되지 않았습니다.'
-    });
-  });
-}
+  }
+);
 
 // 프로필 조회 (JWT 인증 필요)
 app.get('/api/auth/profile', 
   passport.authenticate('jwt', { session: false }),
   (req, res) => {
-    try {
-      console.log('👤 프로필 조회 성공:', req.user.email);
-      const { password, ...userProfile } = req.user;
-      res.json({
-        success: true,
-        user: userProfile
-      });
-    } catch (error) {
-      console.error('❌ 프로필 조회 실패:', error);
-      res.status(500).json({
-        success: false,
-        message: '프로필을 조회할 수 없습니다.'
-      });
-    }
+    console.log('👤 프로필 조회 성공:', req.user.email);
+    const { password, ...userProfile } = req.user;
+    res.json({
+      success: true,
+      user: userProfile
+    });
   }
 );
 
@@ -261,6 +172,19 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({
     success: true,
     message: '로그아웃 되었습니다.'
+  });
+});
+
+// 기타 라우트들
+app.get('/api/auth/test', (req, res) => {
+  console.log('🧪 Auth 테스트 요청');
+  res.json({ 
+    message: 'Auth 라우터가 정상 작동합니다!',
+    timestamp: new Date().toISOString(),
+    oauth_ready: {
+      google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      kakao: !!process.env.KAKAO_CLIENT_ID && process.env.KAKAO_CLIENT_SECRET
+    }
   });
 });
 
@@ -349,9 +273,9 @@ async function searchNaverNews(keyword) {
     const response = await axios.get('https://openapi.naver.com/v1/search/news.json', {
       params: {
         query: keyword,
-        display: 10,
+        display: 10, // 최대 10개 결과
         start: 1,
-        sort: 'date'
+        sort: 'date' // 최신순 정렬
       },
       headers: {
         'X-Naver-Client-Id': process.env.NAVER_CLIENT_ID,
@@ -367,10 +291,12 @@ async function searchNaverNews(keyword) {
     }
 
     const articles = response.data.items.map((item, index) => {
+      // HTML 태그 제거 함수
       const removeHtmlTags = (str) => {
         return str.replace(/<[^>]*>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
       };
 
+      // 날짜 포맷팅
       const formatDate = (dateString) => {
         try {
           const date = new Date(dateString);
@@ -398,6 +324,7 @@ async function searchNaverNews(keyword) {
   } catch (error) {
     console.error('❌ 네이버 뉴스 API 호출 실패:', error.response?.data || error.message);
     
+    // API 오류 시 대체 데이터
     return [{
       id: 1,
       title: `${keyword} 관련 뉴스 검색 오류`,
@@ -411,10 +338,11 @@ async function searchNaverNews(keyword) {
   }
 }
 
-// GPT 요약 생성 함수
+// GPT 요약 생성 함수 (개선된 버전)
 async function generateSummary(content) {
   try {
     if (!process.env.OPENAI_API_KEY) {
+      // OpenAI API가 없을 때 간단한 대체 요약
       const sentences = content.split('.').filter(s => s.trim().length > 10);
       if (sentences.length > 0) {
         return sentences.slice(0, 2).join('. ').substring(0, 150) + '.';
@@ -451,6 +379,7 @@ async function generateSummary(content) {
   } catch (error) {
     console.error('❌ GPT 요약 생성 오류:', error.response?.data || error.message);
     
+    // GPT API 오류 시 간단한 대체 요약
     const sentences = content.split('.').filter(s => s.trim().length > 10);
     if (sentences.length > 0) {
       return sentences.slice(0, 2).join('. ').substring(0, 150) + '.';
@@ -460,182 +389,40 @@ async function generateSummary(content) {
   }
 }
 
-// 자동매매 시스템 상태 조회 (관리자용)
-app.get('/api/admin/trading-status', 
-  passport.authenticate('jwt', { session: false }),
-  async (req, res) => {
-    try {
-      // Trading Engine이 로드되어 있는지 확인
-      let systemStatus = {
-        activeTradings: 0,
-        totalPositions: 0,
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        timestamp: new Date().toISOString(),
-        status: 'unavailable'
-      };
-
-      try {
-        const tradingEngine = require('./src/services/tradingEngine');
-        systemStatus = tradingEngine.getSystemStatus();
-        systemStatus.status = 'available';
-      } catch (error) {
-        console.log('⚠️ Trading Engine 로드 실패:', error.message);
-      }
-      
-      res.json({
-        success: true,
-        data: systemStatus
-      });
-    } catch (error) {
-      console.error('자동매매 시스템 상태 조회 실패:', error);
-      res.status(500).json({
-        success: false,
-        message: '시스템 상태를 조회할 수 없습니다.'
-      });
-    }
-  }
-);
-
-// 긴급 정지 (관리자용)
-app.post('/api/admin/emergency-stop', 
-  passport.authenticate('jwt', { session: false }),
-  async (req, res) => {
-    try {
-      let result = {
-        success: false,
-        message: 'Trading Engine을 사용할 수 없습니다.'
-      };
-
-      try {
-        const tradingEngine = require('./src/services/tradingEngine');
-        await tradingEngine.emergencyStopAll();
-        result = {
-          success: true,
-          message: '모든 자동매매가 긴급 정지되었습니다.'
-        };
-      } catch (error) {
-        console.log('⚠️ Trading Engine 긴급 정지 실패:', error.message);
-      }
-      
-      res.json(result);
-    } catch (error) {
-      console.error('긴급 정지 실패:', error);
-      res.status(500).json({
-        success: false,
-        message: '긴급 정지에 실패했습니다.'
-      });
-    }
-  }
-);
-
-// 에러 핸들링 미들웨어
+// 에러 핸들링
 app.use((err, req, res, next) => {
   console.error('💥 서버 에러:', err);
-  
-  // CORS 에러 처리
-  if (err.message && err.message.includes('CORS')) {
-    return res.status(403).json({
-      success: false,
-      message: 'CORS 정책에 의해 차단되었습니다.'
-    });
-  }
-  
-  // JWT 에러 처리
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      success: false,
-      message: '인증이 필요합니다.'
-    });
-  }
-  
-  // 기타 에러 처리
-  res.status(err.status || 500).json({ 
-    success: false,
+  res.status(500).json({ 
     message: '서버 오류가 발생했습니다.',
-    error: process.env.NODE_ENV === 'development' ? {
-      message: err.message,
-      stack: err.stack
-    } : {}
+    error: process.env.NODE_ENV === 'development' ? err.message : {}
   });
 });
 
-// 404 핸들링
-app.use('*', (req, res) => {
+// 404 핸들링 (맨 마지막에)
+app.use((req, res) => {
   console.log(`❌ 404 - 경로를 찾을 수 없음: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ 
-    success: false,
     message: '요청한 리소스를 찾을 수 없습니다.',
     path: req.originalUrl,
-    method: req.method,
-    timestamp: new Date().toISOString()
+    method: req.method
   });
-});
-
-// Graceful shutdown 처리
-process.on('SIGTERM', async () => {
-  console.log('👋 SIGTERM 신호 받음 - 서버를 안전하게 종료합니다...');
-  
-  try {
-    const tradingEngine = require('./src/services/tradingEngine');
-    await tradingEngine.emergencyStopAll();
-    console.log('✅ 자동매매 시스템 정리 완료');
-  } catch (error) {
-    console.log('⚠️ 자동매매 시스템 정리 중 오류 (무시됨):', error.message);
-  }
-  
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('👋 SIGINT 신호 받음 - 서버를 안전하게 종료합니다...');
-  
-  try {
-    const tradingEngine = require('./src/services/tradingEngine');
-    await tradingEngine.emergencyStopAll();
-    console.log('✅ 자동매매 시스템 정리 완료');
-  } catch (error) {
-    console.log('⚠️ 자동매매 시스템 정리 중 오류 (무시됨):', error.message);
-  }
-  
-  process.exit(0);
-});
-
-// 처리되지 않은 Promise 거부 처리
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ 처리되지 않은 Promise 거부:', reason);
-});
-
-// 처리되지 않은 예외 처리
-process.on('uncaughtException', (error) => {
-  console.error('❌ 처리되지 않은 예외:', error);
-  // 크리티컬 에러가 아닌 경우 서버 유지
-  if (!error.message.includes('EADDRINUSE')) {
-    return;
-  }
-  process.exit(1);
 });
 
 // 서버 시작
-const server = app.listen(PORT, () => {
-  console.log('🎉=================================🎉');
-  console.log(`✅ 주식 자동매매 서버가 시작되었습니다!`);
-  console.log(`🌐 포트: ${PORT}`);
-  console.log(`🔗 URL: http://localhost:${PORT}`);
-  console.log('🎉=================================🎉');
-  console.log('📊 시스템 상태:');
+app.listen(PORT, () => {
+  console.log(`✅ 서버가 포트 ${PORT}에서 실행 중입니다.`);
+  console.log(`🌐 접속 URL: http://localhost:${PORT}`);
   console.log('- Database:', '✅ 연결됨');
   console.log('- JWT:', !!process.env.JWT_SECRET ? '✅ 설정됨' : '❌ 미설정');
-  console.log('- KIS API:', !!(process.env.KIS_APP_KEY && process.env.KIS_APP_SECRET) ? '✅ 설정됨' : '❌ 미설정');
-  console.log('- OpenAI API:', !!process.env.OPENAI_API_KEY ? '✅ 설정됨' : '❌ 미설정');
-  console.log('- Naver API:', !!(process.env.NAVER_CLIENT_ID && process.env.NAVER_CLIENT_SECRET) ? '✅ 설정됨' : '❌ 미설정');
-  console.log('🎉=================================🎉');
 });
 
-// 서버 타임아웃 설정
-server.timeout = 120000; // 2분
+// 프로세스 종료 처리
+process.on('SIGTERM', () => {
+  console.log('👋 서버를 종료합니다...');
+  process.exit(0);
+});
 
-// 서버 종료 시 정리
-server.on('close', () => {
-  console.log('🔚 서버가 종료되었습니다.');
-});require('dotenv').config();
+process.on('SIGINT', () => {
+  console.log('👋 서버를 종료합니다...');
+  process.exit(0);
+});
