@@ -81,7 +81,6 @@ app.get('/', (req, res) => {
   });
 });
 
-
 // Health check
 app.get('/api/health', (req, res) => {
   console.log('💚 Health check 요청');
@@ -174,7 +173,6 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-
 // News 검색 라우터 - 네이버 API 사용
 app.get('/api/news/search', async (req, res) => {
   try {
@@ -249,6 +247,16 @@ app.get('/api/news/search', async (req, res) => {
     });
   }
 });
+
+// Trading 라우터 추가
+console.log('📈 Trading 라우터를 로딩합니다...');
+try {
+  const tradingRoutes = require('./src/routes/trading');
+  app.use('/api/trading', tradingRoutes);
+  console.log('✅ Trading 라우터 연결 완료');
+} catch (error) {
+  console.error('❌ Trading 라우터 로딩 실패:', error.message);
+}
 
 // 네이버 뉴스 검색 API 함수
 async function searchNaverNews(keyword) {

@@ -49,6 +49,93 @@ const createTablesWithSafeUpdate = async () => {
       );
     `);
 
+    // 자동매매 세션 테이블
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trading_sessions (
+        id SERIAL PRIMARY KEY,
+        session_id VARCHAR(255) UNIQUE NOT NULL,
+        user_id INTEGER REFERENCES users(id),
+        market_type VARCHAR(20) NOT NULL, -- 'domestic' or 'overseas'
+        strategy_type VARCHAR(50) NOT NULL,
+        investment_amount DECIMAL(15,2) NOT NULL,
+        risk_level VARCHAR(20),
+        selected_stocks JSONB,
+        status VARCHAR(20) DEFAULT 'ACTIVE', -- 'ACTIVE', 'STOPPED', 'ERROR'
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ended_at TIMESTAMP,
+        final_profit DECIMAL(15,2) DEFAULT 0,
+        total_orders INTEGER DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 거래 로그 테이블
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trade_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        session_id VARCHAR(255),
+        stock_code VARCHAR(20) NOT NULL,
+        trade_type VARCHAR(10) NOT NULL, -- 'BUY' or 'SELL'
+        quantity INTEGER NOT NULL,
+        price DECIMAL(15,4) NOT NULL,
+        order_number VARCHAR(255),
+        profit_loss DECIMAL(15,2) DEFAULT 0,
+        analysis_reason TEXT,
+        executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 계좌 로그 테이블
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS account_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        account_type VARCHAR(20) NOT NULL, -- 'domestic' or 'overseas'
+        total_assets DECIMAL(15,2),
+        available_cash DECIMAL(15,2),
+        stock_value DECIMAL(15,2),
+        profit_loss DECIMAL(15,2),
+        logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // AI 추천 로그 테이블
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS recommendation_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        market_type VARCHAR(20) NOT NULL,
+        investment_style VARCHAR(20) NOT NULL,
+        recommendations JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 전략 분석 로그 테이블
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS strategy_analyses (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        stock_code VARCHAR(20) NOT NULL,
+        strategy_type VARCHAR(50) NOT NULL,
+        analysis_result JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 인덱스 생성
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trading_sessions_user_id ON trading_sessions(user_id);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trade_logs_user_id ON trade_logs(user_id);
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_trade_logs_session_id ON trade_logs(session_id);
+    `);
+
     // Users 테이블에 제약조건 추가 (존재하지 않을 경우만)
     try {
       await client.query(`
