@@ -326,8 +326,9 @@ class TradingController {
   static async getTradingStatus(req, res) {
     try {
       const userId = req.user.id;
+      console.log(`📊 자동매매 상태 조회: userId=${userId}`);
 
-      // 활성 세션 조회
+      // 활성 세션 조회 (메모리에서)
       const activeSessions = Array.from(activeTradingSessions.values())
         .filter(session => session.userId === userId)
         .map(session => ({
@@ -342,23 +343,69 @@ class TradingController {
           totalProfit: session.totalProfit
         }));
 
-      // 최근 세션 히스토리 조회
-      const historyResult = await query(
-        `SELECT session_id, market_type, strategy_type, investment_amount,
-                status, started_at, ended_at, final_profit, total_orders
-         FROM trading_sessions 
-         WHERE user_id = $1 
-         ORDER BY started_at DESC 
-         LIMIT 10`,
-        [userId]
-      );
+      console.log(`💾 메모리 활성 세션: ${activeSessions.length}개`);
+
+      // DB에서 세션 히스토리 조회 (에러 처리 강화)
+      let historyResult = { rows: [] };
+      
+      try {
+        // 먼저 테이블 존재 여부 확인
+        const tableCheck = await query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'trading_sessions' 
+          AND column_name IN ('market_type', 'strategy_type')
+        `);
+        
+        console.log('🔍 테이블 컬럼 확인:', tableCheck.rows.map(r => r.column_name));
+
+        if (tableCheck.rows.length >= 2) {
+          // 컬럼이 모두 존재하는 경우
+          historyResult = await query(`
+            SELECT session_id, 
+                   COALESCE(market_type, 'domestic') as market_type, 
+                   COALESCE(strategy_type, 'comprehensive') as strategy_type, 
+                   investment_amount,
+                   status, started_at, ended_at, final_profit, total_orders
+            FROM trading_sessions 
+            WHERE user_id = $1 
+            ORDER BY started_at DESC 
+            LIMIT 10
+          `, [userId]);
+        } else {
+          // 컬럼이 없는 경우 기본 쿼리
+          console.log('⚠️ trading_sessions 테이블 컬럼 부족, 기본 조회');
+          historyResult = await query(`
+            SELECT session_id, 
+                   'domestic' as market_type,
+                   'comprehensive' as strategy_type,
+                   COALESCE(investment_amount, 0) as investment_amount,
+                   COALESCE(status, 'UNKNOWN') as status,
+                   started_at, ended_at, 
+                   COALESCE(final_profit, 0) as final_profit,
+                   COALESCE(total_orders, 0) as total_orders
+            FROM trading_sessions 
+            WHERE user_id = $1 
+            ORDER BY started_at DESC 
+            LIMIT 10
+          `, [userId]);
+        }
+        
+        console.log(`✅ DB 세션 히스토리: ${historyResult.rows.length}개`);
+        
+      } catch (dbError) {
+        console.error('❌ DB 세션 히스토리 조회 실패:', dbError);
+        console.log('📝 세션 히스토리를 빈 배열로 설정');
+        historyResult = { rows: [] };
+      }
 
       res.json({
         success: true,
         data: {
           activeSessions,
           sessionHistory: historyResult.rows,
-          totalActiveSessions: activeSessions.length
+          totalActiveSessions: activeSessions.length,
+          lastUpdated: new Date().toISOString()
         }
       });
 
@@ -367,7 +414,13 @@ class TradingController {
       res.status(500).json({
         success: false,
         message: '자동매매 상태 조회에 실패했습니다.',
-        error: error.message
+        error: process.env.NODE_ENV === 'development' ? error.message : '서버 오류',
+        data: {
+          activeSessions: [],
+          sessionHistory: [],
+          totalActiveSessions: 0,
+          lastUpdated: new Date().toISOString()
+        }
       });
     }
   }
@@ -378,21 +431,48 @@ class TradingController {
       const userId = req.user.id;
       const { sessionId, limit = 50, offset = 0 } = req.query;
 
-      let whereClause = 'WHERE user_id = $1';
-      let queryParams = [userId];
+      console.log(`📋 거래 내역 조회: userId=${userId}, sessionId=${sessionId}, limit=${limit}, offset=${offset}`);
 
-      if (sessionId) {
-        whereClause += ' AND session_id = $2';
-        queryParams.push(sessionId);
+      let queryText;
+      let queryParams;
+
+      // sessionId가 있는 경우와 없는 경우를 명확히 분리
+      if (sessionId && sessionId.trim() !== '') {
+        queryText = `
+          SELECT id, user_id, session_id, stock_code, trade_type, quantity, 
+                 price, order_number, profit_loss, analysis_reason, 
+                 COALESCE(market_type, 'domestic') as market_type, executed_at
+          FROM trade_logs 
+          WHERE user_id = $1 AND session_id = $2
+          ORDER BY executed_at DESC 
+          LIMIT $3 OFFSET $4
+        `;
+        queryParams = [userId, sessionId, parseInt(limit), parseInt(offset)];
+      } else {
+        queryText = `
+          SELECT id, user_id, session_id, stock_code, trade_type, quantity, 
+                 price, order_number, profit_loss, analysis_reason, 
+                 COALESCE(market_type, 'domestic') as market_type, executed_at
+          FROM trade_logs 
+          WHERE user_id = $1
+          ORDER BY executed_at DESC 
+          LIMIT $2 OFFSET $3
+        `;
+        queryParams = [userId, parseInt(limit), parseInt(offset)];
       }
 
-      const result = await query(
-        `SELECT * FROM trade_logs 
-         ${whereClause}
-         ORDER BY executed_at DESC 
-         LIMIT ${queryParams.length + 1} OFFSET ${queryParams.length + 2}`,
-        [...queryParams, limit, offset]
-      );
+      console.log('🔍 실행할 쿼리:', queryText);
+      console.log('🔍 쿼리 파라미터:', queryParams);
+
+      let result;
+      try {
+        result = await query(queryText, queryParams);
+        console.log(`✅ 거래 내역 조회 성공: ${result.rows.length}개`);
+      } catch (dbError) {
+        console.error('❌ DB 쿼리 실행 실패:', dbError);
+        console.log('⚠️ 거래 내역 조회 실패, 빈 배열 반환');
+        result = { rows: [] };
+      }
 
       res.json({
         success: true,
@@ -401,7 +481,8 @@ class TradingController {
           pagination: {
             limit: parseInt(limit),
             offset: parseInt(offset),
-            total: result.rows.length
+            total: result.rows.length,
+            hasMore: result.rows.length === parseInt(limit)
           }
         }
       });
@@ -411,7 +492,16 @@ class TradingController {
       res.status(500).json({
         success: false,
         message: '거래 내역 조회에 실패했습니다.',
-        error: error.message
+        error: process.env.NODE_ENV === 'development' ? error.message : '서버 오류',
+        data: {
+          trades: [],
+          pagination: {
+            limit: parseInt(req.query.limit || 50),
+            offset: parseInt(req.query.offset || 0),
+            total: 0,
+            hasMore: false
+          }
+        }
       });
     }
   }
